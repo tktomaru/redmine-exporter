@@ -47,6 +47,10 @@ func main() {
 		stateFile = flag.String("state", "", "Stateファイルのパス（差分運用）")
 		since     = flag.String("since", "", "開始日時 (auto, YYYY-MM-DD)")
 		until     = flag.String("until", "", "終了日時 (auto, YYYY-MM-DD)")
+
+		// テンプレート機能（フェーズ5）
+		templatePath = flag.String("template", "", "テンプレートファイルのパス (.tmpl)")
+		stdout       = flag.Bool("stdout", false, "標準出力に出力")
 	)
 
 	flag.Usage = func() {
@@ -85,6 +89,9 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  --state .state.json でState管理を有効化\n")
 		fmt.Fprintf(os.Stderr, "  --since auto で前回実行以降のチケットのみ取得\n")
 		fmt.Fprintf(os.Stderr, "  --until auto で現在時刻までのチケットを取得\n")
+		fmt.Fprintf(os.Stderr, "\nテンプレート機能:\n")
+		fmt.Fprintf(os.Stderr, "  --template weekly.tmpl でカスタムテンプレートを使用\n")
+		fmt.Fprintf(os.Stderr, "  --stdout で標準出力に出力（ファイル作成なし）\n")
 	}
 
 	flag.Parse()
@@ -95,21 +102,21 @@ func main() {
 		os.Exit(0)
 	}
 
-	// 出力パスのチェック
-	if *outputPath == "" {
-		fmt.Fprintln(os.Stderr, "エラー: 出力ファイルを指定してください (-o)")
+	// 出力パスのチェック（stdoutモードでない場合のみ）
+	if *outputPath == "" && !*stdout {
+		fmt.Fprintln(os.Stderr, "エラー: 出力ファイルを指定してください (-o) または --stdout を使用してください")
 		flag.Usage()
 		os.Exit(1)
 	}
 
 	// 実行
-	if err := run(*configPath, *outputPath, *mode, *tags, *includeComments, *week, *weekStart, *dateField, *comments, *commentsSince, *commentsBy, *preferComments, *groupBy, *sortBy, *stateFile, *since, *until); err != nil {
+	if err := run(*configPath, *outputPath, *mode, *tags, *includeComments, *week, *weekStart, *dateField, *comments, *commentsSince, *commentsBy, *preferComments, *groupBy, *sortBy, *stateFile, *since, *until, *templatePath, *stdout); err != nil {
 		fmt.Fprintf(os.Stderr, "エラー: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func run(configPath, outputPath, modeFlag, tagsFlag string, includeCommentsFlag bool, weekFlag, weekStartFlag, dateFieldFlag, commentsMode, commentsSinceFlag, commentsByFlag string, preferCommentsFlag bool, groupByFlag, sortByFlag, stateFileFlag, sinceFlag, untilFlag string) error {
+func run(configPath, outputPath, modeFlag, tagsFlag string, includeCommentsFlag bool, weekFlag, weekStartFlag, dateFieldFlag, commentsMode, commentsSinceFlag, commentsByFlag string, preferCommentsFlag bool, groupByFlag, sortByFlag, stateFileFlag, sinceFlag, untilFlag, templatePathFlag string, stdoutFlag bool) error {
 	// 0. State管理の初期化（指定されている場合）
 	var stateMgr *state.Manager
 	var stateData *state.State
@@ -354,31 +361,52 @@ func run(configPath, outputPath, modeFlag, tagsFlag string, includeCommentsFlag 
 	}
 
 	// 5. フォーマッター選択
-	fmtr, err := formatter.DetectFormatter(outputPath, cfg.Output.Mode, cfg.Output.TagNames)
+	// stdoutモードの場合、outputPathが空の可能性があるため、テンプレートパスまたはデフォルトを使用
+	formatterOutputPath := outputPath
+	if stdoutFlag && formatterOutputPath == "" {
+		// stdoutモードでoutputPathが空の場合、拡張子判定用にダミーパス
+		if templatePathFlag != "" {
+			formatterOutputPath = templatePathFlag
+		} else {
+			formatterOutputPath = "stdout.md" // デフォルトはMarkdown
+		}
+	}
+
+	fmtr, err := formatter.DetectFormatter(formatterOutputPath, cfg.Output.Mode, cfg.Output.TagNames, templatePathFlag)
 	if err != nil {
 		return err
 	}
 
-	// 6. ファイル出力
-	fmt.Printf("ファイルに出力中: %s\n", outputPath)
+	// 6. 出力
+	if stdoutFlag {
+		// 標準出力に出力
+		fmt.Fprintln(os.Stderr, "標準出力に出力中...")
+		if err := fmtr.Format(roots, os.Stdout); err != nil {
+			return fmt.Errorf("出力エラー: %w", err)
+		}
+		fmt.Fprintf(os.Stderr, "出力完了: %d 件のチケット\n", ticketCount)
+	} else {
+		// ファイルに出力
+		fmt.Printf("ファイルに出力中: %s\n", outputPath)
 
-	// 出力ディレクトリが存在しない場合は作成
-	dir := filepath.Dir(outputPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("ディレクトリ作成エラー: %w", err)
+		// 出力ディレクトリが存在しない場合は作成
+		dir := filepath.Dir(outputPath)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return fmt.Errorf("ディレクトリ作成エラー: %w", err)
+		}
+
+		file, err := os.Create(outputPath)
+		if err != nil {
+			return fmt.Errorf("ファイル作成エラー: %w", err)
+		}
+		defer file.Close()
+
+		if err := fmtr.Format(roots, file); err != nil {
+			return fmt.Errorf("出力エラー: %w", err)
+		}
+
+		fmt.Printf("出力完了: %d 件のチケット\n", ticketCount)
 	}
-
-	file, err := os.Create(outputPath)
-	if err != nil {
-		return fmt.Errorf("ファイル作成エラー: %w", err)
-	}
-	defer file.Close()
-
-	if err := fmtr.Format(roots, file); err != nil {
-		return fmt.Errorf("出力エラー: %w", err)
-	}
-
-	fmt.Printf("出力完了: %d 件のチケット\n", ticketCount)
 
 	// 7. State保存（成功時のみ）
 	if stateMgr != nil && stateData != nil {

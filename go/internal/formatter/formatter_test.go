@@ -148,7 +148,7 @@ func TestDetectFormatter(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			formatter, err := DetectFormatter(tt.filename, "summary", []string{"要約"})
+			formatter, err := DetectFormatter(tt.filename, "summary", []string{"要約"}, "")
 
 			if (err != nil) != tt.wantErr {
 				t.Errorf("DetectFormatter() error = %v, wantErr %v", err, tt.wantErr)

@@ -1,0 +1,61 @@
+# 週報 ({{ .Now.Format "2006/01/02" }})
+
+{{ range .Issues }}
+{{- if hasChildren . }}
+## {{ .CleanedSubject }}
+
+{{ range .Children }}
+### {{ .CleanedSubject }}
+
+- **ID**: #{{ .ID }}
+- **ステータス**: {{ status . }}
+- **担当者**: {{ assignee . }}
+- **開始日**: {{ formatDate .StartDate }}
+- **期日**: {{ formatDate .DueDate }}
+{{- if .UpdatedOn }}
+- **更新日時**: {{ formatDateTime .UpdatedOn }}
+{{- end }}
+
+{{- if gt (len .Journals) 0 }}
+
+**コメント**:
+{{- range .Journals }}
+{{- if .Notes }}
+
+- **{{ .User.Name }}** ({{ .CreatedOn }}):
+  {{ .Notes }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+---
+{{ end }}
+
+{{- else }}
+## {{ .CleanedSubject }}
+
+- **ID**: #{{ .ID }}
+- **ステータス**: {{ status . }}
+- **担当者**: {{ assignee . }}
+- **トラッカー**: {{ tracker . }}
+- **開始日**: {{ formatDate .StartDate }}
+- **期日**: {{ formatDate .DueDate }}
+{{- if .UpdatedOn }}
+- **更新日時**: {{ formatDateTime .UpdatedOn }}
+{{- end }}
+
+{{- if gt (len .Journals) 0 }}
+
+**コメント**:
+{{- range .Journals }}
+{{- if .Notes }}
+
+- **{{ .User.Name }}** ({{ .CreatedOn }}):
+  {{ .Notes }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+---
+{{ end }}
+{{ end }}
