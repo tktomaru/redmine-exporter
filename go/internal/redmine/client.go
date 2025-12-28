@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 )
@@ -29,15 +30,19 @@ func NewClient(baseURL, apiKey string) *Client {
 
 // FetchAllIssues は全チケットを取得（ページネーション対応）
 // VBA版のFetchAllIssues関数に相当
+//
+// Redmine APIの制限により、複数チケット取得時はinclude=journalsが機能しないため、
+// includeJournals=trueの場合は各チケットを個別に再取得します。
 func (c *Client) FetchAllIssues(filterURL string, includeJournals bool, dateFilter *DateFilter, progress func(current, total int)) ([]*Issue, error) {
 	const limit = 100
 	offset := 0
 	totalCount := -1
 	allIssues := []*Issue{}
 
+	// Step 1: まず全チケットをjournalsなしで取得（高速）
 	for {
-		// URLを構築（VBA版と同じロジック）
-		requestURL := c.buildURL(filterURL, limit, offset, includeJournals, dateFilter)
+		// URLを構築（journalsは含めない）
+		requestURL := c.buildURL(filterURL, limit, offset, false, dateFilter)
 
 		// 進捗表示
 		if progress != nil {
@@ -69,7 +74,63 @@ func (c *Client) FetchAllIssues(filterURL string, includeJournals bool, dateFilt
 		offset += limit
 	}
 
+	// Step 2: journalsが必要な場合、各チケットを個別に再取得
+	// Redmine APIの制限: 複数チケット取得時はinclude=journalsが機能しない
+	if includeJournals && len(allIssues) > 0 {
+		fmt.Fprintf(os.Stderr, "[INFO] ジャーナル取得中（各チケットを個別取得）...\n")
+		for i, issue := range allIssues {
+			if progress != nil {
+				progress(i+1, len(allIssues))
+			}
+
+			// 個別チケットを取得
+			detailedIssue, err := c.FetchIssue(issue.ID)
+			if err != nil {
+				// エラーが発生してもスキップして続行
+				fmt.Fprintf(os.Stderr, "[WARN] Issue #%d のジャーナル取得失敗: %v\n", issue.ID, err)
+				continue
+			}
+
+			// journalsを既存のissueにコピー
+			allIssues[i].Journals = detailedIssue.Journals
+		}
+	}
+
 	return allIssues, nil
+}
+
+// FetchIssue は単一のチケットをjournals付きで取得
+func (c *Client) FetchIssue(issueID int) (*Issue, error) {
+	url := fmt.Sprintf("%s/issues/%d.json?include=journals", c.baseURL, issueID)
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("リクエスト作成エラー: %w", err)
+	}
+
+	req.Header.Set("X-Redmine-API-Key", c.apiKey)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("HTTPリクエストエラー: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
+	}
+
+	// JSONパース（単一チケットのレスポンス形式）
+	var result struct {
+		Issue *Issue `json:"issue"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("JSON解析エラー: %w", err)
+	}
+
+	return result.Issue, nil
 }
 
 // buildURL はVBA版と同じロジックでURLを構築
@@ -93,6 +154,9 @@ func (c *Client) buildURL(filterURL string, limit, offset int, includeJournals b
 	if dateFilter != nil {
 		url += "&" + dateFilter.ToQueryString()
 	}
+
+	// デバッグ: 構築したURLを表示（APIキーは除く）
+	fmt.Fprintf(os.Stderr, "[DEBUG] Request URL: %s (includeJournals=%v)\n", url, includeJournals)
 
 	return url
 }
@@ -124,6 +188,16 @@ func (c *Client) fetch(url string) (*APIResponse, error) {
 	var apiResp APIResponse
 	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
 		return nil, fmt.Errorf("JSON解析エラー: %w", err)
+	}
+
+	// デバッグ: レスポンスのジャーナル情報を表示
+	if len(apiResp.Issues) > 0 {
+		totalJournals := 0
+		for _, issue := range apiResp.Issues {
+			totalJournals += len(issue.Journals)
+		}
+		fmt.Fprintf(os.Stderr, "[DEBUG] API Response: %d issues, %d journals total\n",
+			len(apiResp.Issues), totalJournals)
 	}
 
 	return &apiResp, nil

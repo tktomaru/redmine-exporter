@@ -11,7 +11,8 @@
       "Bash(find:*)",
       "Bash(go mod tidy:*)",
       "Bash(go build:*)",
-      "Bash(./redmine-exporter:*)"
+      "Bash(./redmine-exporter:*)",
+      "Bash(chmod:*)"
     ]
   }
 }

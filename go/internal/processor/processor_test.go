@@ -47,7 +47,7 @@ func TestCleanTitle(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			proc, err := NewProcessor(tt.patterns, []string{"要約"}, "summary", false)
+			proc, err := NewProcessor(tt.patterns, []string{"要約"}, "summary", false, false)
 			if err != nil {
 				t.Fatalf("NewProcessor()でエラー: %v", err)
 			}
@@ -112,7 +112,7 @@ func TestExtractSummary(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			proc, _ := NewProcessor([]string{}, []string{"要約"}, "summary", false)
+			proc, _ := NewProcessor([]string{}, []string{"要約"}, "summary", false, false)
 			got := proc.ExtractSummary(tt.description)
 			if got != tt.want {
 				t.Errorf("ExtractSummary() = %q; want %q", got, tt.want)
@@ -161,7 +161,7 @@ func TestFirstLine(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			proc, _ := NewProcessor([]string{}, []string{"要約"}, "summary", false)
+			proc, _ := NewProcessor([]string{}, []string{"要約"}, "summary", false, false)
 			got := proc.firstLine(tt.input)
 			if got != tt.want {
 				t.Errorf("firstLine() = %q; want %q", got, tt.want)
@@ -243,7 +243,7 @@ func TestProcess(t *testing.T) {
 
 	// プロセッサー作成
 	patterns := []string{`^\[.*?\]\s*`, `\s*\(.*?\)$`}
-	proc, err := NewProcessor(patterns, []string{"要約"}, "summary", false)
+	proc, err := NewProcessor(patterns, []string{"要約"}, "summary", false, false)
 	if err != nil {
 		t.Fatalf("NewProcessor()でエラー: %v", err)
 	}
@@ -287,7 +287,7 @@ func TestNewProcessorWithInvalidPattern(t *testing.T) {
 	// 不正な正規表現パターン
 	patterns := []string{`[未閉じ`, `正常なパターン`, `(未閉じ`}
 
-	proc, err := NewProcessor(patterns, []string{"要約"}, "summary", false)
+	proc, err := NewProcessor(patterns, []string{"要約"}, "summary", false, false)
 	if err != nil {
 		t.Fatalf("NewProcessor()でエラー: %v", err)
 	}
@@ -296,5 +296,171 @@ func TestNewProcessorWithInvalidPattern(t *testing.T) {
 	// 正常なパターンのみが適用される
 	if len(proc.cleaningPatterns) != 1 {
 		t.Errorf("cleaningPatterns length = %d; want 1 (不正なパターンはスキップされる)", len(proc.cleaningPatterns))
+	}
+}
+
+func TestExtractTags_FromJournals(t *testing.T) {
+	tests := []struct {
+		name             string
+		tagNames         []string
+		description      string
+		journals         []redmine.Journal
+		includeComments  bool
+		want             map[string]string
+	}{
+		{
+			name:        "ジャーナルからタグ抽出（includeComments=true）",
+			tagNames:    []string{"進捗", "課題"},
+			description: "説明文",
+			journals: []redmine.Journal{
+				{
+					ID:    1,
+					Notes: "[進捗]バグが発生しました[/進捗]",
+				},
+				{
+					ID:    2,
+					Notes: "[課題]修正が必要です[/課題]",
+				},
+			},
+			includeComments: true,
+			want: map[string]string{
+				"進捗": "バグが発生しました",
+				"課題": "修正が必要です",
+			},
+		},
+		{
+			name:        "ジャーナルからタグ抽出（includeComments=false）",
+			tagNames:    []string{"進捗", "課題"},
+			description: "説明文",
+			journals: []redmine.Journal{
+				{
+					ID:    1,
+					Notes: "[進捗]バグが発生しました[/進捗]",
+				},
+			},
+			includeComments: false,
+			want:            map[string]string{}, // includeComments=falseなので抽出されない
+		},
+		{
+			name:        "説明文とジャーナル両方にタグ（説明文優先）",
+			tagNames:    []string{"進捗"},
+			description: "[進捗]説明文の進捗[/進捗]",
+			journals: []redmine.Journal{
+				{
+					ID:    1,
+					Notes: "[進捗]コメントの進捗[/進捗]",
+				},
+			},
+			includeComments: true,
+			want: map[string]string{
+				"進捗": "説明文の進捗", // 説明文が優先される
+			},
+		},
+		{
+			name:        "空のジャーナル",
+			tagNames:    []string{"進捗"},
+			description: "説明文",
+			journals: []redmine.Journal{
+				{
+					ID:    1,
+					Notes: "",
+				},
+			},
+			includeComments: true,
+			want:            map[string]string{},
+		},
+		{
+			name:        "複数のジャーナル（最新のタグのみ抽出）",
+			tagNames:    []string{"進捗"},
+			description: "説明文",
+			journals: []redmine.Journal{
+				{
+					ID:    1,
+					Notes: "[進捗]最初のコメント[/進捗]",
+				},
+				{
+					ID:    2,
+					Notes: "[進捗]二番目のコメント[/進捗]",
+				},
+			},
+			includeComments: true,
+			want: map[string]string{
+				"進捗": "二番目のコメント", // 最新のコメントから抽出
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			proc, err := NewProcessor([]string{}, tt.tagNames, "tags", false, tt.includeComments)
+			if err != nil {
+				t.Fatalf("NewProcessor()でエラー: %v", err)
+			}
+
+			got := proc.ExtractTags(tt.tagNames, tt.description, tt.journals)
+
+			if len(got) != len(tt.want) {
+				t.Errorf("ExtractTags() 結果の数 = %d; want %d", len(got), len(tt.want))
+			}
+
+			for tagName, wantContent := range tt.want {
+				gotContent, ok := got[tagName]
+				if !ok {
+					t.Errorf("ExtractTags() タグ %q が見つかりません", tagName)
+					continue
+				}
+				if gotContent != wantContent {
+					t.Errorf("ExtractTags() タグ %q の内容 = %q; want %q", tagName, gotContent, wantContent)
+				}
+			}
+		})
+	}
+}
+
+func TestProcess_WithJournalTags(t *testing.T) {
+	// テストデータ準備
+	issue1 := &redmine.Issue{
+		ID:          1,
+		Subject:     "タスク1",
+		Description: "説明文",
+		Journals: []redmine.Journal{
+			{
+				ID:    1,
+				Notes: "[進捗]バグが発生しました[/進捗]\n[課題]修正が必要です[/課題]",
+			},
+		},
+	}
+
+	issues := []*redmine.Issue{issue1}
+
+	// プロセッサー作成（includeComments=true）
+	proc, err := NewProcessor([]string{}, []string{"進捗", "課題", "要約"}, "tags", false, true)
+	if err != nil {
+		t.Fatalf("NewProcessor()でエラー: %v", err)
+	}
+
+	// 処理実行
+	roots := proc.Process(issues)
+
+	// 検証
+	if len(roots) != 1 {
+		t.Fatalf("roots length = %d; want 1", len(roots))
+	}
+
+	// ExtractedTagsの検証
+	if roots[0].ExtractedTags == nil {
+		t.Fatal("ExtractedTags is nil")
+	}
+
+	if got, ok := roots[0].ExtractedTags["進捗"]; !ok {
+		t.Error("タグ '進捗' が見つかりません")
+	} else if got != "バグが発生しました" {
+		t.Errorf("タグ '進捗' の内容 = %q; want 'バグが発生しました'", got)
+	}
+
+	if got, ok := roots[0].ExtractedTags["課題"]; !ok {
+		t.Error("タグ '課題' が見つかりません")
+	} else if got != "修正が必要です" {
+		t.Errorf("タグ '課題' の内容 = %q; want '修正が必要です'", got)
 	}
 }

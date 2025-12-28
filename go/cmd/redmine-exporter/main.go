@@ -261,8 +261,19 @@ func run(configPath, outputPath, modeFlag, tagsFlag string, includeCommentsFlag 
 	client := redmine.NewClient(cfg.Redmine.BaseURL, cfg.Redmine.APIKey)
 
 	// 3. 全チケット取得（進捗表示付き）
+	// コメント関連の機能を使用する場合は、必ずjournalsを取得
+	needsJournals := cfg.Output.IncludeComments ||
+		commentsMode != "" ||
+		commentsSinceFlag != "" ||
+		commentsByFlag != "" ||
+		preferCommentsFlag
+
+	// デバッグ情報
+	fmt.Fprintf(os.Stderr, "[DEBUG] needsJournals=%v (IncludeComments=%v, mode=%s)\n",
+		needsJournals, cfg.Output.IncludeComments, commentsMode)
+
 	fmt.Println("Redmineからチケットを取得中...")
-	issues, err := client.FetchAllIssues(cfg.Redmine.FilterURL, cfg.Output.IncludeComments, dateFilter, func(current, total int) {
+	issues, err := client.FetchAllIssues(cfg.Redmine.FilterURL, needsJournals, dateFilter, func(current, total int) {
 		if total > 0 {
 			fmt.Printf("\r取得中... (%d / %d)", current, total)
 		} else {
@@ -273,6 +284,22 @@ func run(configPath, outputPath, modeFlag, tagsFlag string, includeCommentsFlag 
 		return fmt.Errorf("チケット取得エラー: %w", err)
 	}
 	fmt.Printf("\r取得完了: %d 件のチケット\n", len(issues))
+
+	// デバッグ：ジャーナル情報を表示
+	if needsJournals {
+		totalJournals := 0
+		journalsWithNotes := 0
+		for _, issue := range issues {
+			totalJournals += len(issue.Journals)
+			for _, j := range issue.Journals {
+				if j.Notes != "" {
+					journalsWithNotes++
+				}
+			}
+		}
+		fmt.Fprintf(os.Stderr, "[DEBUG] 取得したジャーナル: 合計%d件 (Notes有り: %d件)\n",
+			totalJournals, journalsWithNotes)
+	}
 
 	// 3.5. コメントフィルタの適用
 	if commentsMode != "" || commentsSinceFlag != "" || commentsByFlag != "" {
@@ -307,7 +334,7 @@ func run(configPath, outputPath, modeFlag, tagsFlag string, includeCommentsFlag 
 
 	// 4. データ処理
 	fmt.Println("チケットを処理中...")
-	proc, err := processor.NewProcessor(cfg.TitleCleaning.Patterns, cfg.Output.TagNames, cfg.Output.Mode, preferCommentsFlag)
+	proc, err := processor.NewProcessor(cfg.TitleCleaning.Patterns, cfg.Output.TagNames, cfg.Output.Mode, preferCommentsFlag, cfg.Output.IncludeComments)
 	if err != nil {
 		return fmt.Errorf("プロセッサー初期化エラー: %w", err)
 	}

@@ -1,0 +1,9 @@
+{
+  "last_run": "2025-12-28T22:17:29.080047607+09:00",
+  "last_success_run": "2025-12-28T22:17:29.118785748+09:00",
+  "version": "1.0.0",
+  "filter_config": {
+    "date_field": "updated_on",
+    "week": "last"
+  }
+}
