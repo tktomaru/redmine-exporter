@@ -14,6 +14,7 @@ import (
 	"github.com/tktomaru/redmine-exporter/internal/processor"
 	"github.com/tktomaru/redmine-exporter/internal/redmine"
 	"github.com/tktomaru/redmine-exporter/internal/state"
+	"github.com/tktomaru/redmine-exporter/internal/stats"
 )
 
 const version = "1.0.0"
@@ -51,6 +52,10 @@ func main() {
 		// テンプレート機能（フェーズ5）
 		templatePath = flag.String("template", "", "テンプレートファイルのパス (.tmpl)")
 		stdout       = flag.Bool("stdout", false, "標準出力に出力")
+
+		// 統計・メトリクス（フェーズ6）
+		showStats      = flag.Bool("stats", false, "統計情報を表示")
+		includeMetrics = flag.Bool("include-metrics", false, "詳細メトリクスを含める")
 	)
 
 	flag.Usage = func() {
@@ -92,6 +97,9 @@ func main() {
 		fmt.Fprintf(os.Stderr, "\nテンプレート機能:\n")
 		fmt.Fprintf(os.Stderr, "  --template weekly.tmpl でカスタムテンプレートを使用\n")
 		fmt.Fprintf(os.Stderr, "  --stdout で標準出力に出力（ファイル作成なし）\n")
+		fmt.Fprintf(os.Stderr, "\n統計・メトリクス:\n")
+		fmt.Fprintf(os.Stderr, "  --stats で統計情報を表示（総件数、ステータス別など）\n")
+		fmt.Fprintf(os.Stderr, "  --include-metrics で詳細メトリクスを含める（期限切れ、コメント統計など）\n")
 	}
 
 	flag.Parse()
@@ -110,17 +118,20 @@ func main() {
 	}
 
 	// 実行
-	if err := run(*configPath, *outputPath, *mode, *tags, *includeComments, *week, *weekStart, *dateField, *comments, *commentsSince, *commentsBy, *preferComments, *groupBy, *sortBy, *stateFile, *since, *until, *templatePath, *stdout); err != nil {
+	if err := run(*configPath, *outputPath, *mode, *tags, *includeComments, *week, *weekStart, *dateField, *comments, *commentsSince, *commentsBy, *preferComments, *groupBy, *sortBy, *stateFile, *since, *until, *templatePath, *stdout, *showStats, *includeMetrics); err != nil {
 		fmt.Fprintf(os.Stderr, "エラー: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func run(configPath, outputPath, modeFlag, tagsFlag string, includeCommentsFlag bool, weekFlag, weekStartFlag, dateFieldFlag, commentsMode, commentsSinceFlag, commentsByFlag string, preferCommentsFlag bool, groupByFlag, sortByFlag, stateFileFlag, sinceFlag, untilFlag, templatePathFlag string, stdoutFlag bool) error {
+func run(configPath, outputPath, modeFlag, tagsFlag string, includeCommentsFlag bool, weekFlag, weekStartFlag, dateFieldFlag, commentsMode, commentsSinceFlag, commentsByFlag string, preferCommentsFlag bool, groupByFlag, sortByFlag, stateFileFlag, sinceFlag, untilFlag, templatePathFlag string, stdoutFlag, showStatsFlag, includeMetricsFlag bool) error {
 	// 0. State管理の初期化（指定されている場合）
 	var stateMgr *state.Manager
 	var stateData *state.State
 	var fileLock *state.FileLock
+
+	// 統計計算用の期間（週報機能や差分運用で設定される）
+	var statsWeekStart, statsWeekEnd time.Time
 
 	if stateFileFlag != "" {
 		// ファイルロック取得
@@ -186,6 +197,10 @@ func run(configPath, outputPath, modeFlag, tagsFlag string, includeCommentsFlag 
 			End:   end,
 		}
 
+		// 統計計算用の期間を設定
+		statsWeekStart = start
+		statsWeekEnd = end
+
 		fmt.Printf("期間フィルタ: %s %s 〜 %s\n", dateFieldFlag, start.Format("2006/01/02"), end.Format("2006/01/02"))
 	}
 
@@ -234,6 +249,10 @@ func run(configPath, outputPath, modeFlag, tagsFlag string, includeCommentsFlag 
 			Start: start,
 			End:   end,
 		}
+
+		// 統計計算用の期間を設定
+		statsWeekStart = start
+		statsWeekEnd = end
 
 		fmt.Printf("期間フィルタ: %s %s 〜 %s\n", dateFieldFlag, start.Format("2006/01/02 15:04:05"), end.Format("2006/01/02 15:04:05"))
 	}
@@ -375,6 +394,52 @@ func run(configPath, outputPath, modeFlag, tagsFlag string, includeCommentsFlag 
 	fmtr, err := formatter.DetectFormatter(formatterOutputPath, cfg.Output.Mode, cfg.Output.TagNames, templatePathFlag)
 	if err != nil {
 		return err
+	}
+
+	// 5.5. 統計計算（--stats または --include-metrics が指定されている場合）
+	if showStatsFlag || includeMetricsFlag {
+		// 統計期間が設定されていない場合は、デフォルト期間を使用
+		if statsWeekStart.IsZero() {
+			statsWeekStart = time.Now().AddDate(0, 0, -7) // 過去7日間
+		}
+		if statsWeekEnd.IsZero() {
+			statsWeekEnd = time.Now()
+		}
+
+		// 統計を計算
+		weeklyStats := stats.Calculate(roots, statsWeekStart, statsWeekEnd)
+
+		// テンプレートフォーマッターの場合は統計を設定
+		if tmplFmtr, ok := fmtr.(*formatter.TemplateFormatter); ok {
+			tmplFmtr.SetStats(weeklyStats, statsWeekStart, statsWeekEnd)
+		}
+
+		// --stats フラグが指定されている場合は、標準エラー出力に統計を表示
+		if showStatsFlag {
+			fmt.Fprintf(os.Stderr, "\n=== 統計情報 ===\n")
+			fmt.Fprintf(os.Stderr, "総チケット数: %d\n", weeklyStats.TotalIssues)
+			fmt.Fprintf(os.Stderr, "\nステータス別:\n")
+			for status, count := range weeklyStats.ByStatus {
+				fmt.Fprintf(os.Stderr, "  %s: %d\n", status, count)
+			}
+			fmt.Fprintf(os.Stderr, "\n担当者別:\n")
+			for assignee, count := range weeklyStats.ByAssignee {
+				fmt.Fprintf(os.Stderr, "  %s: %d\n", assignee, count)
+			}
+		}
+
+		// --include-metrics フラグが指定されている場合は詳細メトリクスを表示
+		if includeMetricsFlag {
+			fmt.Fprintf(os.Stderr, "\n=== 詳細メトリクス ===\n")
+			fmt.Fprintf(os.Stderr, "新規作成: %d\n", weeklyStats.NewIssues)
+			fmt.Fprintf(os.Stderr, "更新: %d\n", weeklyStats.UpdatedIssues)
+			fmt.Fprintf(os.Stderr, "完了: %d\n", weeklyStats.ClosedIssues)
+			fmt.Fprintf(os.Stderr, "期限切れ: %d\n", len(weeklyStats.OverdueTasks))
+			fmt.Fprintf(os.Stderr, "期限間近（7日以内）: %d\n", len(weeklyStats.DueSoonTasks))
+			fmt.Fprintf(os.Stderr, "\nコメント統計:\n")
+			fmt.Fprintf(os.Stderr, "  総コメント数: %d\n", weeklyStats.CommentStats.TotalComments)
+			fmt.Fprintf(os.Stderr, "  コメントのあるチケット数: %d\n", weeklyStats.CommentStats.IssuesWithComments)
+		}
 	}
 
 	// 6. 出力

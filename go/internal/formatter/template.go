@@ -9,22 +9,29 @@ import (
 
 	"github.com/tktomaru/redmine-exporter/internal/processor"
 	"github.com/tktomaru/redmine-exporter/internal/redmine"
+	"github.com/tktomaru/redmine-exporter/internal/stats"
 )
 
 // TemplateFormatter はGo templateを使用した出力
 type TemplateFormatter struct {
-	tmplPath string
-	mode     string
-	tagNames []string
-	tmpl     *template.Template
+	tmplPath  string
+	mode      string
+	tagNames  []string
+	tmpl      *template.Template
+	stats     *stats.WeeklyStats // 統計情報
+	weekStart time.Time
+	weekEnd   time.Time
 }
 
 // TemplateData はテンプレートに渡すデータ
 type TemplateData struct {
-	Now      time.Time
-	Issues   []*redmine.Issue
-	Mode     string
-	TagNames []string
+	Now       time.Time
+	Issues    []*redmine.Issue
+	Mode      string
+	TagNames  []string
+	Stats     *stats.WeeklyStats // 統計情報（オプション）
+	WeekStart time.Time          // 週の開始日（統計計算用）
+	WeekEnd   time.Time          // 週の終了日（統計計算用）
 }
 
 // NewTemplateFormatter は新しいTemplateFormatterを作成
@@ -44,10 +51,13 @@ func NewTemplateFormatter(tmplPath string) (*TemplateFormatter, error) {
 // Format はテンプレートを使用して出力
 func (f *TemplateFormatter) Format(roots []*redmine.Issue, w io.Writer) error {
 	data := TemplateData{
-		Now:      time.Now(),
-		Issues:   roots,
-		Mode:     f.mode,
-		TagNames: f.tagNames,
+		Now:       time.Now(),
+		Issues:    roots,
+		Mode:      f.mode,
+		TagNames:  f.tagNames,
+		Stats:     f.stats,
+		WeekStart: f.weekStart,
+		WeekEnd:   f.weekEnd,
 	}
 
 	// テンプレート名はファイル名のベース名
@@ -68,6 +78,13 @@ func (f *TemplateFormatter) Format(roots []*redmine.Issue, w io.Writer) error {
 func (f *TemplateFormatter) SetMode(mode string, tagNames []string) {
 	f.mode = mode
 	f.tagNames = tagNames
+}
+
+// SetStats は統計情報を設定
+func (f *TemplateFormatter) SetStats(stats *stats.WeeklyStats, weekStart, weekEnd time.Time) {
+	f.stats = stats
+	f.weekStart = weekStart
+	f.weekEnd = weekEnd
 }
 
 // templateFuncs はテンプレートで使用できる関数を定義
