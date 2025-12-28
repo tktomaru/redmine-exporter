@@ -36,7 +36,7 @@ func main() {
 
 		// コメント制御（フェーズ2）
 		comments       = flag.String("comments", "", "コメント抽出モード (last, all, n:3)")
-		commentsSince  = flag.String("comments-since", "", "コメント抽出の開始日時 (start, YYYY-MM-DD)")
+		commentsSince  = flag.String("comments-since", "", "コメント抽出の開始日時 (auto, start, YYYY-MM-DD)")
 		commentsBy     = flag.String("comments-by", "", "コメント抽出対象ユーザー")
 		preferComments = flag.Bool("prefer-comments", false, "説明文よりコメントを優先")
 
@@ -83,7 +83,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "\nコメント制御:\n")
 		fmt.Fprintf(os.Stderr, "  --comments last で最新コメントのみ抽出\n")
 		fmt.Fprintf(os.Stderr, "  --comments n:3 で最新3件のコメントを抽出\n")
-		fmt.Fprintf(os.Stderr, "  --comments-since start で週の開始以降のコメントのみ\n")
+		fmt.Fprintf(os.Stderr, "  --comments-since auto/start で週の開始以降のコメントのみ\n")
 		fmt.Fprintf(os.Stderr, "  --comments-by で特定ユーザーのコメントのみ抽出\n")
 		fmt.Fprintf(os.Stderr, "\nグルーピング・ソート:\n")
 		fmt.Fprintf(os.Stderr, "  --group-by assignee で担当者別にグルーピング\n")
@@ -305,11 +305,11 @@ func run(configPath, outputPath, modeFlag, tagsFlag string, includeCommentsFlag 
 	if commentsMode != "" || commentsSinceFlag != "" || commentsByFlag != "" {
 		fmt.Println("コメントをフィルタリング中...")
 
-		// commentsSinceの解釈（"start" の場合は週の開始日を使用）
+		// commentsSinceの解釈（"auto" または "start" の場合は週の開始日を使用）
 		var commentsSinceDate *time.Time
-		if commentsSinceFlag == "start" && dateFilter != nil {
+		if (commentsSinceFlag == "auto" || commentsSinceFlag == "start") && dateFilter != nil {
 			commentsSinceDate = &dateFilter.Start
-		} else if commentsSinceFlag != "" && commentsSinceFlag != "start" {
+		} else if commentsSinceFlag != "" && commentsSinceFlag != "auto" && commentsSinceFlag != "start" {
 			// YYYY-MM-DD形式をパース
 			t, err := time.Parse("2006-01-02", commentsSinceFlag)
 			if err != nil {

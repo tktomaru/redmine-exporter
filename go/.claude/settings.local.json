@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Bash(go test:*)"
+      "Bash(go test:*)",
+      "Bash(make build:*)",
+      "Bash(./bin/redmine-exporter:*)",
+      "Bash(make test:*)"
     ]
   }
 }
