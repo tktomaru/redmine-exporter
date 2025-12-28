@@ -27,6 +27,8 @@ type Issue struct {
 	AssignedTo  *IDName    `json:"assigned_to"`
 	Parent      *IssueRef  `json:"parent"`
 	Journals    []Journal  `json:"journals"`
+	UpdatedOn   *DateTime  `json:"updated_on"` // 更新日時（週報機能用）
+	CreatedOn   *DateTime  `json:"created_on"` // 作成日時（週報機能用）
 
 	// 処理用フィールド（APIレスポンスには含まれない）
 	CleanedSubject string            `json:"-"`
@@ -90,4 +92,34 @@ func (d *Date) Format() string {
 		return "----/--/--"
 	}
 	return d.Time.Format("2006/01/02")
+}
+
+// DateTime はRedmineのタイムスタンプフォーマット（ISO 8601）
+type DateTime struct {
+	time.Time
+}
+
+// UnmarshalJSON は ISO 8601形式のタイムスタンプをパース
+func (dt *DateTime) UnmarshalJSON(b []byte) error {
+	s := string(b)
+	if s == "null" || s == `""` {
+		return nil
+	}
+	// 引用符を削除
+	s = strings.Trim(s, `"`)
+	// ISO 8601形式でパース (例: "2025-01-15T10:30:45Z")
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return err
+	}
+	dt.Time = t
+	return nil
+}
+
+// Format は日時を指定フォーマットで返す
+func (dt *DateTime) Format() string {
+	if dt == nil || dt.Time.IsZero() {
+		return ""
+	}
+	return dt.Time.Format("2006/01/02 15:04:05")
 }

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/tktomaru/redmine-exporter/internal/config"
+	"github.com/tktomaru/redmine-exporter/internal/filter"
 	"github.com/tktomaru/redmine-exporter/internal/formatter"
 	"github.com/tktomaru/redmine-exporter/internal/processor"
 	"github.com/tktomaru/redmine-exporter/internal/redmine"
@@ -24,6 +25,11 @@ func main() {
 		mode            = flag.String("mode", "", "出力モード (summary, full, tags) ※設定ファイルより優先")
 		tags            = flag.String("tags", "", "抽出するタグ名（カンマ区切り） 例: 要約,進捗,課題")
 		includeComments = flag.Bool("include-comments", false, "コメントからもタグを抽出する")
+
+		// 週報機能（フェーズ1）
+		week      = flag.String("week", "", "週指定 (last, this, YYYY-WW) 例: last, 2025-01")
+		weekStart = flag.String("week-start", "mon", "週の起点 (mon, sun)")
+		dateField = flag.String("date-field", "updated_on", "日時フィールド (updated_on, created_on, start_date, due_date)")
 	)
 
 	flag.Usage = func() {
@@ -31,7 +37,8 @@ func main() {
 		fmt.Fprintf(os.Stderr, "使い方:\n")
 		fmt.Fprintf(os.Stderr, "  redmine-exporter -o output.xlsx\n")
 		fmt.Fprintf(os.Stderr, "  redmine-exporter -o output.md --mode full\n")
-		fmt.Fprintf(os.Stderr, "  redmine-exporter -o output.txt --mode tags --tags \"要約,進捗\" --include-comments\n\n")
+		fmt.Fprintf(os.Stderr, "  redmine-exporter -o output.txt --mode tags --tags \"要約,進捗\" --include-comments\n")
+		fmt.Fprintf(os.Stderr, "  redmine-exporter -o weekly.md --week last --week-start mon\n\n")
 		fmt.Fprintf(os.Stderr, "オプション:\n")
 		flag.PrintDefaults()
 		fmt.Fprintf(os.Stderr, "\n対応する出力形式:\n")
@@ -42,6 +49,10 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  summary - 要約のみ出力（デフォルト）\n")
 		fmt.Fprintf(os.Stderr, "  full    - すべてのフィールドを出力\n")
 		fmt.Fprintf(os.Stderr, "  tags    - 指定したタグの内容を抽出\n")
+		fmt.Fprintf(os.Stderr, "\n週報機能:\n")
+		fmt.Fprintf(os.Stderr, "  --week last で先週分のチケットを一発で取得\n")
+		fmt.Fprintf(os.Stderr, "  --week-start で週の起点を月曜/日曜で切り替え\n")
+		fmt.Fprintf(os.Stderr, "  --date-field で更新日時/作成日時などでフィルタ\n")
 	}
 
 	flag.Parse()
@@ -60,13 +71,13 @@ func main() {
 	}
 
 	// 実行
-	if err := run(*configPath, *outputPath, *mode, *tags, *includeComments); err != nil {
+	if err := run(*configPath, *outputPath, *mode, *tags, *includeComments, *week, *weekStart, *dateField); err != nil {
 		fmt.Fprintf(os.Stderr, "エラー: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func run(configPath, outputPath, modeFlag, tagsFlag string, includeCommentsFlag bool) error {
+func run(configPath, outputPath, modeFlag, tagsFlag string, includeCommentsFlag bool, weekFlag, weekStartFlag, dateFieldFlag string) error {
 	// 1. 設定ファイル読み込み
 	fmt.Printf("設定ファイルを読み込んでいます: %s\n", configPath)
 	cfg, err := config.LoadConfig(configPath)
@@ -88,12 +99,37 @@ func run(configPath, outputPath, modeFlag, tagsFlag string, includeCommentsFlag 
 		cfg.Output.IncludeComments = true
 	}
 
+	// 週報フィルタの構築
+	var dateFilter *redmine.DateFilter
+	if weekFlag != "" {
+		// WeekCalculatorを作成
+		wc, err := filter.NewWeekCalculator(weekStartFlag, "Asia/Tokyo")
+		if err != nil {
+			return fmt.Errorf("週計算エラー: %w", err)
+		}
+
+		// 週の期間を取得
+		start, end, err := wc.GetWeekRange(weekFlag)
+		if err != nil {
+			return fmt.Errorf("週範囲計算エラー: %w", err)
+		}
+
+		// DateFilterを構築
+		dateFilter = &redmine.DateFilter{
+			Field: dateFieldFlag,
+			Start: start,
+			End:   end,
+		}
+
+		fmt.Printf("期間フィルタ: %s %s 〜 %s\n", dateFieldFlag, start.Format("2006/01/02"), end.Format("2006/01/02"))
+	}
+
 	// 2. Redmine APIクライアント作成
 	client := redmine.NewClient(cfg.Redmine.BaseURL, cfg.Redmine.APIKey)
 
 	// 3. 全チケット取得（進捗表示付き）
 	fmt.Println("Redmineからチケットを取得中...")
-	issues, err := client.FetchAllIssues(cfg.Redmine.FilterURL, cfg.Output.IncludeComments, func(current, total int) {
+	issues, err := client.FetchAllIssues(cfg.Redmine.FilterURL, cfg.Output.IncludeComments, dateFilter, func(current, total int) {
 		if total > 0 {
 			fmt.Printf("\r取得中... (%d / %d)", current, total)
 		} else {
