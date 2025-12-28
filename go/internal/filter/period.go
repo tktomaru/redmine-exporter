@@ -7,7 +7,7 @@ import (
 
 // WeekCalculator は週の期間を計算する
 type WeekCalculator struct {
-	weekStart time.Weekday   // 週の起点（Monday or Sunday）
+	weekStart time.Weekday   // 週の起点（Sunday〜Saturday）
 	location  *time.Location // タイムゾーン
 }
 
@@ -22,12 +22,22 @@ func NewWeekCalculator(weekStart string, timezone string) (*WeekCalculator, erro
 	// 週の起点を設定
 	var ws time.Weekday
 	switch weekStart {
-	case "mon":
-		ws = time.Monday
 	case "sun":
 		ws = time.Sunday
+	case "mon":
+		ws = time.Monday
+	case "tue":
+		ws = time.Tuesday
+	case "wed":
+		ws = time.Wednesday
+	case "thu":
+		ws = time.Thursday
+	case "fri":
+		ws = time.Friday
+	case "sat":
+		ws = time.Saturday
 	default:
-		return nil, fmt.Errorf("不正な週の起点: %s (mon or sun)", weekStart)
+		return nil, fmt.Errorf("不正な週の起点: %s (sun, mon, tue, wed, thu, fri, sat)", weekStart)
 	}
 
 	return &WeekCalculator{

@@ -14,13 +14,6 @@ func TestNewWeekCalculator(t *testing.T) {
 		wantErr   bool
 	}{
 		{
-			name:      "Monday start with Asia/Tokyo",
-			weekStart: "mon",
-			timezone:  "Asia/Tokyo",
-			wantStart: time.Monday,
-			wantErr:   false,
-		},
-		{
 			name:      "Sunday start with Asia/Tokyo",
 			weekStart: "sun",
 			timezone:  "Asia/Tokyo",
@@ -28,8 +21,50 @@ func TestNewWeekCalculator(t *testing.T) {
 			wantErr:   false,
 		},
 		{
-			name:      "Invalid week start",
+			name:      "Monday start with Asia/Tokyo",
+			weekStart: "mon",
+			timezone:  "Asia/Tokyo",
+			wantStart: time.Monday,
+			wantErr:   false,
+		},
+		{
+			name:      "Tuesday start with Asia/Tokyo",
 			weekStart: "tue",
+			timezone:  "Asia/Tokyo",
+			wantStart: time.Tuesday,
+			wantErr:   false,
+		},
+		{
+			name:      "Wednesday start with Asia/Tokyo",
+			weekStart: "wed",
+			timezone:  "Asia/Tokyo",
+			wantStart: time.Wednesday,
+			wantErr:   false,
+		},
+		{
+			name:      "Thursday start with Asia/Tokyo",
+			weekStart: "thu",
+			timezone:  "Asia/Tokyo",
+			wantStart: time.Thursday,
+			wantErr:   false,
+		},
+		{
+			name:      "Friday start with Asia/Tokyo",
+			weekStart: "fri",
+			timezone:  "Asia/Tokyo",
+			wantStart: time.Friday,
+			wantErr:   false,
+		},
+		{
+			name:      "Saturday start with Asia/Tokyo",
+			weekStart: "sat",
+			timezone:  "Asia/Tokyo",
+			wantStart: time.Saturday,
+			wantErr:   false,
+		},
+		{
+			name:      "Invalid week start",
+			weekStart: "invalid",
 			timezone:  "Asia/Tokyo",
 			wantErr:   true,
 		},
