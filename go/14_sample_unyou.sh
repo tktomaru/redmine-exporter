@@ -59,6 +59,6 @@ echo "1. 運用時の理想イメージ"
   --prefer-comments \
   \
   --group-by assignee \
-  --sort updated_on \
+  --sort updated_on:desc  \
   \
   --template ./templates/weekly.md.tmpl

@@ -121,6 +121,7 @@ func main() {
 		mode            = flag.String("mode", "", "出力モード (summary, full, tags) ※設定ファイルより優先")
 		tags            = flag.String("tags", "", "抽出するタグ名（カンマ区切り、個別上限指定可） 例: 要約:5,進捗,課題:2")
 		includeComments = flag.Bool("include-comments", false, "コメントからもタグを抽出する")
+		tagsOrder       = flag.String("tags-order", "newest", "タグの表示順序 (newest, oldest) ※コメントから抽出されたタグの並び順")
 
 		// 週報機能（フェーズ1）
 		week      = flag.String("week", "", "週指定 (last, this, YYYY-WW) 例: last, 2025-01")
@@ -135,7 +136,7 @@ func main() {
 
 		// グルーピング・ソート（フェーズ3）
 		groupBy = flag.String("group-by", "", "グルーピング方法 (assignee, status, tracker, project, priority)")
-		sortBy  = flag.String("sort", "", "ソート方法 (updated_on, created_on, due_date, start_date, priority, id)")
+		sortBy  = flag.String("sort", "", "ソート方法 (field または field:asc/desc, 例: updated_on, updated_on:asc, due_date:desc)")
 
 		// State管理（フェーズ4）
 		stateFile = flag.String("state", "", "Stateファイルのパス（差分運用）")
@@ -172,6 +173,8 @@ func main() {
 		fmt.Fprintf(os.Stderr, "\nタグ機能:\n")
 		fmt.Fprintf(os.Stderr, "  --tags \"要約,進捗,課題\" でタグを指定\n")
 		fmt.Fprintf(os.Stderr, "  --tags \"要約:3,進捗:5,課題\" でタグごとに個別の上限を指定\n")
+		fmt.Fprintf(os.Stderr, "  --tags-order newest でコメントのタグを新しい順に表示（デフォルト）\n")
+		fmt.Fprintf(os.Stderr, "  --tags-order oldest でコメントのタグを古い順に表示\n")
 		fmt.Fprintf(os.Stderr, "  --comments n:3 がすべてのタグの共通上限（個別指定と比較して小さい方を採用）\n")
 		fmt.Fprintf(os.Stderr, "  例: --comments n:3 --tags \"要約:5,進捗\" → 要約は3件、進捗は3件\n")
 		fmt.Fprintf(os.Stderr, "\n週報機能:\n")
@@ -186,8 +189,10 @@ func main() {
 		fmt.Fprintf(os.Stderr, "\nグルーピング・ソート:\n")
 		fmt.Fprintf(os.Stderr, "  --group-by assignee で担当者別にグルーピング\n")
 		fmt.Fprintf(os.Stderr, "  --group-by status でステータス別にグルーピング\n")
-		fmt.Fprintf(os.Stderr, "  --sort updated_on で更新日時順にソート\n")
-		fmt.Fprintf(os.Stderr, "  --sort due_date で期日順にソート\n")
+		fmt.Fprintf(os.Stderr, "  --sort updated_on で更新日時順にソート（デフォルト：降順）\n")
+		fmt.Fprintf(os.Stderr, "  --sort updated_on:asc で昇順、updated_on:desc で降順\n")
+		fmt.Fprintf(os.Stderr, "  --sort due_date で期日順にソート（デフォルト：昇順）\n")
+		fmt.Fprintf(os.Stderr, "  対応フィールド: updated_on, created_on, due_date, start_date, priority, id\n")
 		fmt.Fprintf(os.Stderr, "\n差分運用（State管理）:\n")
 		fmt.Fprintf(os.Stderr, "  --state .state.json でState管理を有効化\n")
 		fmt.Fprintf(os.Stderr, "  --since auto で前回実行以降のチケットのみ取得\n")
@@ -216,13 +221,13 @@ func main() {
 	}
 
 	// 実行
-	if err := run(*configPath, *outputPath, *mode, *tags, *includeComments, *week, *weekStart, *dateField, *comments, *commentsSince, *commentsBy, *preferComments, *groupBy, *sortBy, *stateFile, *since, *until, *templatePath, *stdout, *showStats, *includeMetrics); err != nil {
+	if err := run(*configPath, *outputPath, *mode, *tags, *includeComments, *tagsOrder, *week, *weekStart, *dateField, *comments, *commentsSince, *commentsBy, *preferComments, *groupBy, *sortBy, *stateFile, *since, *until, *templatePath, *stdout, *showStats, *includeMetrics); err != nil {
 		fmt.Fprintf(os.Stderr, "エラー: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func run(configPath, outputPath, modeFlag, tagsFlag string, includeCommentsFlag bool, weekFlag, weekStartFlag, dateFieldFlag, commentsMode, commentsSinceFlag, commentsByFlag string, preferCommentsFlag bool, groupByFlag, sortByFlag, stateFileFlag, sinceFlag, untilFlag, templatePathFlag string, stdoutFlag, showStatsFlag, includeMetricsFlag bool) error {
+func run(configPath, outputPath, modeFlag, tagsFlag string, includeCommentsFlag bool, tagsOrderFlag, weekFlag, weekStartFlag, dateFieldFlag, commentsMode, commentsSinceFlag, commentsByFlag string, preferCommentsFlag bool, groupByFlag, sortByFlag, stateFileFlag, sinceFlag, untilFlag, templatePathFlag string, stdoutFlag, showStatsFlag, includeMetricsFlag bool) error {
 	// 0. State管理の初期化（指定されている場合）
 	var stateMgr *state.Manager
 	var stateData *state.State
@@ -453,7 +458,7 @@ func run(configPath, outputPath, modeFlag, tagsFlag string, includeCommentsFlag 
 
 	// 4. データ処理
 	fmt.Println("チケットを処理中...")
-	proc, err := processor.NewProcessor(cfg.TitleCleaning.Patterns, tagConfigs, cfg.Output.Mode, preferCommentsFlag, cfg.Output.IncludeComments)
+	proc, err := processor.NewProcessor(cfg.TitleCleaning.Patterns, tagConfigs, cfg.Output.Mode, preferCommentsFlag, cfg.Output.IncludeComments, tagsOrderFlag)
 	if err != nil {
 		return fmt.Errorf("プロセッサー初期化エラー: %w", err)
 	}

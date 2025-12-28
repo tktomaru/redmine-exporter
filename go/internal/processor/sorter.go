@@ -2,6 +2,7 @@ package processor
 
 import (
 	"sort"
+	"strings"
 
 	"github.com/tktomaru/redmine-exporter/internal/redmine"
 )
@@ -12,32 +13,67 @@ type Sorter interface {
 }
 
 // NewSorter は指定されたソート方法に応じたSorterを作成
+// 形式: "field" または "field:order" または "field_order"
+// 例: "updated_on", "updated_on:asc", "updated_on_desc"
 func NewSorter(sortBy string) Sorter {
-	switch sortBy {
-	case "updated_on":
-		return &UpdatedOnSorter{Desc: true} // デフォルトは降順（最新が先）
-	case "updated_on_asc":
-		return &UpdatedOnSorter{Desc: false}
-	case "created_on":
-		return &CreatedOnSorter{Desc: true}
-	case "created_on_asc":
-		return &CreatedOnSorter{Desc: false}
-	case "due_date":
-		return &DueDateSorter{Desc: false} // 期日は昇順（近い順）がデフォルト
-	case "due_date_desc":
-		return &DueDateSorter{Desc: true}
-	case "start_date":
-		return &StartDateSorter{Desc: false}
-	case "start_date_desc":
-		return &StartDateSorter{Desc: true}
+	// コロン区切りの形式をパース (例: "updated_on:asc")
+	field := sortBy
+	order := "" // デフォルトはフィールドごとに異なる
+
+	if strings.Contains(sortBy, ":") {
+		parts := strings.SplitN(sortBy, ":", 2)
+		field = strings.TrimSpace(parts[0])
+		order = strings.TrimSpace(parts[1])
+	}
+
+	// order が指定されていない場合、_asc や _desc サフィックスをチェック
+	if order == "" {
+		if strings.HasSuffix(field, "_asc") {
+			field = strings.TrimSuffix(field, "_asc")
+			order = "asc"
+		} else if strings.HasSuffix(field, "_desc") {
+			field = strings.TrimSuffix(field, "_desc")
+			order = "desc"
+		}
+	}
+
+	// フィールドごとのデフォルト順序を決定
+	var defaultDesc bool
+	switch field {
+	case "updated_on", "created_on":
+		defaultDesc = true // 日時は降順（最新が先）がデフォルト
+	case "due_date", "start_date":
+		defaultDesc = false // 日付は昇順（近い順）がデフォルト
 	case "priority":
-		return &PrioritySorter{Desc: true} // 優先度は降順（高い順）
-	case "priority_asc":
-		return &PrioritySorter{Desc: false}
+		defaultDesc = true // 優先度は降順（高い順）がデフォルト
 	case "id":
-		return &IDSorter{Desc: false} // ID昇順
-	case "id_desc":
-		return &IDSorter{Desc: true}
+		defaultDesc = false // IDは昇順がデフォルト
+	default:
+		return nil // 未対応のフィールド
+	}
+
+	// order に基づいて降順フラグを設定
+	desc := defaultDesc
+	if order == "asc" {
+		desc = false
+	} else if order == "desc" {
+		desc = true
+	}
+
+	// Sorterを作成
+	switch field {
+	case "updated_on":
+		return &UpdatedOnSorter{Desc: desc}
+	case "created_on":
+		return &CreatedOnSorter{Desc: desc}
+	case "due_date":
+		return &DueDateSorter{Desc: desc}
+	case "start_date":
+		return &StartDateSorter{Desc: desc}
+	case "priority":
+		return &PrioritySorter{Desc: desc}
+	case "id":
+		return &IDSorter{Desc: desc}
 	default:
 		return nil // ソートなし
 	}

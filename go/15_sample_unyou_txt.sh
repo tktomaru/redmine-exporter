@@ -57,4 +57,5 @@ echo "1. 運用時の理想イメージ"
   --comments n:3 \
   --prefer-comments \
   \
-  --sort updated_on \
+  --sort due_date:asc  \
+  --tags-order oldest

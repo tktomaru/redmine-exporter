@@ -4,7 +4,8 @@
       "Bash(go test:*)",
       "Bash(make build:*)",
       "Bash(./bin/redmine-exporter:*)",
-      "Bash(make test:*)"
+      "Bash(make test:*)",
+      "Bash(grep:*)"
     ]
   }
 }

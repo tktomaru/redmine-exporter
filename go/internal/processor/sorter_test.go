@@ -39,6 +39,36 @@ func TestNewSorter(t *testing.T) {
 			want:   &IDSorter{Desc: false},
 		},
 		{
+			name:   "updated_on:asc (colon format)",
+			sortBy: "updated_on:asc",
+			want:   &UpdatedOnSorter{Desc: false},
+		},
+		{
+			name:   "updated_on:desc (colon format)",
+			sortBy: "updated_on:desc",
+			want:   &UpdatedOnSorter{Desc: true},
+		},
+		{
+			name:   "due_date:asc (colon format)",
+			sortBy: "due_date:asc",
+			want:   &DueDateSorter{Desc: false},
+		},
+		{
+			name:   "due_date:desc (colon format)",
+			sortBy: "due_date:desc",
+			want:   &DueDateSorter{Desc: true},
+		},
+		{
+			name:   "priority:asc (colon format)",
+			sortBy: "priority:asc",
+			want:   &PrioritySorter{Desc: false},
+		},
+		{
+			name:   "id:desc (colon format)",
+			sortBy: "id:desc",
+			want:   &IDSorter{Desc: true},
+		},
+		{
 			name:   "invalid",
 			sortBy: "invalid",
 			want:   nil,

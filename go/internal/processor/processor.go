@@ -20,12 +20,13 @@ type Processor struct {
 	cleaningPatterns []*regexp.Regexp
 	tagConfigs       []TagConfig // タグ設定（名前と件数制限）
 	mode             string
-	preferComments   bool // 説明文よりコメントを優先
-	includeComments  bool // コメントからもタグを抽出
+	preferComments   bool   // 説明文よりコメントを優先
+	includeComments  bool   // コメントからもタグを抽出
+	tagsOrder        string // タグの表示順序 ("newest" または "oldest")
 }
 
 // NewProcessor は新しいProcessorを作成
-func NewProcessor(patterns []string, tagConfigs []TagConfig, mode string, preferComments bool, includeComments bool) (*Processor, error) {
+func NewProcessor(patterns []string, tagConfigs []TagConfig, mode string, preferComments bool, includeComments bool, tagsOrder string) (*Processor, error) {
 	regexps := make([]*regexp.Regexp, 0, len(patterns))
 
 	for _, pattern := range patterns {
@@ -48,6 +49,7 @@ func NewProcessor(patterns []string, tagConfigs []TagConfig, mode string, prefer
 		mode:             mode,
 		preferComments:   preferComments,
 		includeComments:  includeComments,
+		tagsOrder:        tagsOrder,
 	}, nil
 }
 
@@ -150,9 +152,10 @@ func (p *Processor) ExtractTags(description string, journals []redmine.Journal) 
 	result := make(map[string][]string)
 
 	// 説明文から抽出（説明文のみから）
+	descTags := make(map[string][]string)
 	for _, tagConfig := range p.tagConfigs {
 		if content := p.ExtractTag(tagConfig.Name, description); content != "" {
-			result[tagConfig.Name] = append(result[tagConfig.Name], content)
+			descTags[tagConfig.Name] = append(descTags[tagConfig.Name], content)
 			// デバッグ: 説明文から抽出
 			fmt.Fprintf(os.Stderr, "[DEBUG] 説明文から抽出: タグ=%s, 内容=%q\n", tagConfig.Name, content)
 		}
@@ -160,6 +163,7 @@ func (p *Processor) ExtractTags(description string, journals []redmine.Journal) 
 
 	// ジャーナル（コメント）から抽出（includeCommentsがtrueの場合のみ）
 	// コメントからの抽出は説明文の結果とは独立して行われる
+	commentTags := make(map[string][]string)
 	if p.includeComments {
 		fmt.Fprintf(os.Stderr, "[DEBUG] ExtractTags: includeComments=true, journals=%d\n", len(journals))
 		// 最新のコメントから順に処理（逆順）
@@ -171,10 +175,35 @@ func (p *Processor) ExtractTags(description string, journals []redmine.Journal) 
 			fmt.Fprintf(os.Stderr, "[DEBUG] ジャーナル[%d]: Notes=%q\n", i, journal.Notes)
 			for _, tagConfig := range p.tagConfigs {
 				if content := p.ExtractTag(tagConfig.Name, journal.Notes); content != "" {
-					result[tagConfig.Name] = append(result[tagConfig.Name], content)
-					fmt.Fprintf(os.Stderr, "[DEBUG] ジャーナルから抽出成功: タグ=%s, 内容=%q (合計%d個)\n", tagConfig.Name, content, len(result[tagConfig.Name]))
+					commentTags[tagConfig.Name] = append(commentTags[tagConfig.Name], content)
+					fmt.Fprintf(os.Stderr, "[DEBUG] ジャーナルから抽出成功: タグ=%s, 内容=%q (合計%d個)\n", tagConfig.Name, content, len(commentTags[tagConfig.Name]))
 				}
 			}
+		}
+
+		// tagsOrderに応じてコメントのタグを逆転（oldest指定の場合）
+		if p.tagsOrder == "oldest" {
+			for tagName, values := range commentTags {
+				// 配列を逆転
+				reversed := make([]string, len(values))
+				for i, v := range values {
+					reversed[len(values)-1-i] = v
+				}
+				commentTags[tagName] = reversed
+			}
+		}
+	}
+
+	// 説明文のタグとコメントのタグを結合（説明文が最初）
+	for _, tagConfig := range p.tagConfigs {
+		tagName := tagConfig.Name
+		// 説明文のタグを追加
+		if descValues, ok := descTags[tagName]; ok {
+			result[tagName] = append(result[tagName], descValues...)
+		}
+		// コメントのタグを追加
+		if commentValues, ok := commentTags[tagName]; ok {
+			result[tagName] = append(result[tagName], commentValues...)
 		}
 	}
 

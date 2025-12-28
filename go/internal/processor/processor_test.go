@@ -47,7 +47,7 @@ func TestCleanTitle(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			proc, err := NewProcessor(tt.patterns, []TagConfig{{Name: "要約", Limit: 0}}, "summary", false, false)
+			proc, err := NewProcessor(tt.patterns, []TagConfig{{Name: "要約", Limit: 0}}, "summary", false, false, "newest")
 			if err != nil {
 				t.Fatalf("NewProcessor()でエラー: %v", err)
 			}
@@ -112,7 +112,7 @@ func TestExtractSummary(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			proc, _ := NewProcessor([]string{}, []TagConfig{{Name: "要約", Limit: 0}}, "summary", false, false)
+			proc, _ := NewProcessor([]string{}, []TagConfig{{Name: "要約", Limit: 0}}, "summary", false, false, "newest")
 			got := proc.ExtractSummary(tt.description)
 			if got != tt.want {
 				t.Errorf("ExtractSummary() = %q; want %q", got, tt.want)
@@ -161,7 +161,7 @@ func TestFirstLine(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			proc, _ := NewProcessor([]string{}, []TagConfig{{Name: "要約", Limit: 0}}, "summary", false, false)
+			proc, _ := NewProcessor([]string{}, []TagConfig{{Name: "要約", Limit: 0}}, "summary", false, false, "newest")
 			got := proc.firstLine(tt.input)
 			if got != tt.want {
 				t.Errorf("firstLine() = %q; want %q", got, tt.want)
@@ -243,7 +243,7 @@ func TestProcess(t *testing.T) {
 
 	// プロセッサー作成
 	patterns := []string{`^\[.*?\]\s*`, `\s*\(.*?\)$`}
-	proc, err := NewProcessor(patterns, []TagConfig{{Name: "要約", Limit: 0}}, "summary", false, false)
+	proc, err := NewProcessor(patterns, []TagConfig{{Name: "要約", Limit: 0}}, "summary", false, false, "newest")
 	if err != nil {
 		t.Fatalf("NewProcessor()でエラー: %v", err)
 	}
@@ -287,7 +287,7 @@ func TestNewProcessorWithInvalidPattern(t *testing.T) {
 	// 不正な正規表現パターン
 	patterns := []string{`[未閉じ`, `正常なパターン`, `(未閉じ`}
 
-	proc, err := NewProcessor(patterns, []TagConfig{{Name: "要約", Limit: 0}}, "summary", false, false)
+	proc, err := NewProcessor(patterns, []TagConfig{{Name: "要約", Limit: 0}}, "summary", false, false, "newest")
 	if err != nil {
 		t.Fatalf("NewProcessor()でエラー: %v", err)
 	}
@@ -392,7 +392,7 @@ func TestExtractTags_FromJournals(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			proc, err := NewProcessor([]string{}, tt.tagConfigs, "tags", false, tt.includeComments)
+			proc, err := NewProcessor([]string{}, tt.tagConfigs, "tags", false, tt.includeComments, "newest")
 			if err != nil {
 				t.Fatalf("NewProcessor()でエラー: %v", err)
 			}
@@ -482,7 +482,7 @@ func TestExtractTags_WithLimit(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			proc, err := NewProcessor([]string{}, tt.tagConfigs, "tags", false, true)
+			proc, err := NewProcessor([]string{}, tt.tagConfigs, "tags", false, true, "newest")
 			if err != nil {
 				t.Fatalf("NewProcessor()でエラー: %v", err)
 			}
@@ -534,7 +534,7 @@ func TestProcess_WithJournalTags(t *testing.T) {
 	issues := []*redmine.Issue{issue1}
 
 	// プロセッサー作成（includeComments=true）
-	proc, err := NewProcessor([]string{}, []TagConfig{{Name: "進捗", Limit: 0}, {Name: "課題", Limit: 0}, {Name: "要約", Limit: 0}}, "tags", false, true)
+	proc, err := NewProcessor([]string{}, []TagConfig{{Name: "進捗", Limit: 0}, {Name: "課題", Limit: 0}, {Name: "要約", Limit: 0}}, "tags", false, true, "newest")
 	if err != nil {
 		t.Fatalf("NewProcessor()でエラー: %v", err)
 	}
