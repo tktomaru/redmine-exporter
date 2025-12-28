@@ -13,6 +13,7 @@ import (
 	"github.com/tktomaru/redmine-exporter/internal/formatter"
 	"github.com/tktomaru/redmine-exporter/internal/processor"
 	"github.com/tktomaru/redmine-exporter/internal/redmine"
+	"github.com/tktomaru/redmine-exporter/internal/state"
 )
 
 const version = "1.0.0"
@@ -41,6 +42,11 @@ func main() {
 		// グルーピング・ソート（フェーズ3）
 		groupBy = flag.String("group-by", "", "グルーピング方法 (assignee, status, tracker, project, priority)")
 		sortBy  = flag.String("sort", "", "ソート方法 (updated_on, created_on, due_date, start_date, priority, id)")
+
+		// State管理（フェーズ4）
+		stateFile = flag.String("state", "", "Stateファイルのパス（差分運用）")
+		since     = flag.String("since", "", "開始日時 (auto, YYYY-MM-DD)")
+		until     = flag.String("until", "", "終了日時 (auto, YYYY-MM-DD)")
 	)
 
 	flag.Usage = func() {
@@ -75,6 +81,10 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  --group-by status でステータス別にグルーピング\n")
 		fmt.Fprintf(os.Stderr, "  --sort updated_on で更新日時順にソート\n")
 		fmt.Fprintf(os.Stderr, "  --sort due_date で期日順にソート\n")
+		fmt.Fprintf(os.Stderr, "\n差分運用（State管理）:\n")
+		fmt.Fprintf(os.Stderr, "  --state .state.json でState管理を有効化\n")
+		fmt.Fprintf(os.Stderr, "  --since auto で前回実行以降のチケットのみ取得\n")
+		fmt.Fprintf(os.Stderr, "  --until auto で現在時刻までのチケットを取得\n")
 	}
 
 	flag.Parse()
@@ -93,13 +103,39 @@ func main() {
 	}
 
 	// 実行
-	if err := run(*configPath, *outputPath, *mode, *tags, *includeComments, *week, *weekStart, *dateField, *comments, *commentsSince, *commentsBy, *preferComments, *groupBy, *sortBy); err != nil {
+	if err := run(*configPath, *outputPath, *mode, *tags, *includeComments, *week, *weekStart, *dateField, *comments, *commentsSince, *commentsBy, *preferComments, *groupBy, *sortBy, *stateFile, *since, *until); err != nil {
 		fmt.Fprintf(os.Stderr, "エラー: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func run(configPath, outputPath, modeFlag, tagsFlag string, includeCommentsFlag bool, weekFlag, weekStartFlag, dateFieldFlag, commentsMode, commentsSinceFlag, commentsByFlag string, preferCommentsFlag bool, groupByFlag, sortByFlag string) error {
+func run(configPath, outputPath, modeFlag, tagsFlag string, includeCommentsFlag bool, weekFlag, weekStartFlag, dateFieldFlag, commentsMode, commentsSinceFlag, commentsByFlag string, preferCommentsFlag bool, groupByFlag, sortByFlag, stateFileFlag, sinceFlag, untilFlag string) error {
+	// 0. State管理の初期化（指定されている場合）
+	var stateMgr *state.Manager
+	var stateData *state.State
+	var fileLock *state.FileLock
+
+	if stateFileFlag != "" {
+		// ファイルロック取得
+		lock, err := state.AcquireLock(stateFileFlag, 10*time.Second)
+		if err != nil {
+			return fmt.Errorf("ファイルロック取得エラー: %w", err)
+		}
+		fileLock = lock
+		defer fileLock.Release()
+
+		// State読み込み
+		stateMgr = state.NewManager(stateFileFlag)
+		stateData, err = stateMgr.Load()
+		if err != nil {
+			// State破損の場合は警告を表示
+			fmt.Fprintf(os.Stderr, "警告: %v\n", err)
+		}
+
+		// 実行開始時刻を記録
+		stateMgr.UpdateLastRun(stateData)
+	}
+
 	// 1. 設定ファイル読み込み
 	fmt.Printf("設定ファイルを読み込んでいます: %s\n", configPath)
 	cfg, err := config.LoadConfig(configPath)
@@ -144,6 +180,55 @@ func run(configPath, outputPath, modeFlag, tagsFlag string, includeCommentsFlag 
 		}
 
 		fmt.Printf("期間フィルタ: %s %s 〜 %s\n", dateFieldFlag, start.Format("2006/01/02"), end.Format("2006/01/02"))
+	}
+
+	// since/untilフラグの処理（State管理との連携）
+	if sinceFlag != "" || untilFlag != "" {
+		var start, end time.Time
+
+		// since処理
+		if sinceFlag == "auto" {
+			if stateData != nil && !stateData.LastSuccessRun.IsZero() {
+				start = stateData.LastSuccessRun
+				fmt.Printf("差分運用: 前回成功実行 %s 以降のチケットを取得\n", start.Format("2006/01/02 15:04:05"))
+			} else {
+				return fmt.Errorf("--since auto を使用するには --state でStateファイルを指定し、過去に成功実行が必要です")
+			}
+		} else if sinceFlag != "" {
+			var err error
+			start, err = time.Parse("2006-01-02", sinceFlag)
+			if err != nil {
+				return fmt.Errorf("--since の日付形式エラー: %w", err)
+			}
+		} else if dateFilter != nil {
+			start = dateFilter.Start
+		}
+
+		// until処理
+		if untilFlag == "auto" {
+			end = time.Now()
+		} else if untilFlag != "" {
+			var err error
+			end, err = time.Parse("2006-01-02", untilFlag)
+			if err != nil {
+				return fmt.Errorf("--until の日付形式エラー: %w", err)
+			}
+			// 終了日を23:59:59に設定
+			end = time.Date(end.Year(), end.Month(), end.Day(), 23, 59, 59, 0, end.Location())
+		} else if dateFilter != nil {
+			end = dateFilter.End
+		} else {
+			end = time.Now()
+		}
+
+		// DateFilterを作成/更新
+		dateFilter = &redmine.DateFilter{
+			Field: dateFieldFlag,
+			Start: start,
+			End:   end,
+		}
+
+		fmt.Printf("期間フィルタ: %s %s 〜 %s\n", dateFieldFlag, start.Format("2006/01/02 15:04:05"), end.Format("2006/01/02 15:04:05"))
 	}
 
 	// 2. Redmine APIクライアント作成
@@ -294,5 +379,26 @@ func run(configPath, outputPath, modeFlag, tagsFlag string, includeCommentsFlag 
 	}
 
 	fmt.Printf("出力完了: %d 件のチケット\n", ticketCount)
+
+	// 7. State保存（成功時のみ）
+	if stateMgr != nil && stateData != nil {
+		stateMgr.UpdateLastSuccessRun(stateData)
+		stateData.Version = version
+
+		// フィルタ設定を記録
+		if weekFlag != "" {
+			stateMgr.SetFilterConfig(stateData, "week", weekFlag)
+		}
+		if dateFieldFlag != "" {
+			stateMgr.SetFilterConfig(stateData, "date_field", dateFieldFlag)
+		}
+
+		if err := stateMgr.Save(stateData); err != nil {
+			fmt.Fprintf(os.Stderr, "警告: State保存エラー: %v\n", err)
+		} else {
+			fmt.Println("State保存完了")
+		}
+	}
+
 	return nil
 }
