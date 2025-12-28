@@ -25,19 +25,19 @@ func (f *TextFormatter) Format(roots []*redmine.Issue, w io.Writer) error {
 	for _, parent := range roots {
 		if len(parent.Children) > 0 {
 			// 親タスク
-			fmt.Fprintf(w, "■%s\n", parent.CleanedSubject)
+			fmt.Fprintf(w, "■%s　", parent.CleanedSubject)
 			f.printIssueDetails(w, parent, "親")
 
 			// 子タスク
 			for _, child := range parent.Children {
-				fmt.Fprintf(w, "・%s\n", child.CleanedSubject)
+				fmt.Fprintf(w, "・%s　", child.CleanedSubject)
 				f.printIssueDetails(w, child, "子")
 			}
 
 			fmt.Fprintln(w)
 		} else {
 			// スタンドアロンチケット
-			fmt.Fprintf(w, "■%s\n", parent.CleanedSubject)
+			fmt.Fprintf(w, "■%s　", parent.CleanedSubject)
 			f.printIssueDetails(w, parent, "単独")
 			fmt.Fprintln(w)
 		}
