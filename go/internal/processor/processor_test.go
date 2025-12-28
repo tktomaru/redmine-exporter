@@ -47,7 +47,7 @@ func TestCleanTitle(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			proc, err := NewProcessor(tt.patterns, []string{"要約"}, "summary")
+			proc, err := NewProcessor(tt.patterns, []string{"要約"}, "summary", false)
 			if err != nil {
 				t.Fatalf("NewProcessor()でエラー: %v", err)
 			}
@@ -112,7 +112,7 @@ func TestExtractSummary(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			proc, _ := NewProcessor([]string{}, []string{"要約"}, "summary")
+			proc, _ := NewProcessor([]string{}, []string{"要約"}, "summary", false)
 			got := proc.ExtractSummary(tt.description)
 			if got != tt.want {
 				t.Errorf("ExtractSummary() = %q; want %q", got, tt.want)
@@ -161,7 +161,7 @@ func TestFirstLine(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			proc, _ := NewProcessor([]string{}, []string{"要約"}, "summary")
+			proc, _ := NewProcessor([]string{}, []string{"要約"}, "summary", false)
 			got := proc.firstLine(tt.input)
 			if got != tt.want {
 				t.Errorf("firstLine() = %q; want %q", got, tt.want)
@@ -243,7 +243,7 @@ func TestProcess(t *testing.T) {
 
 	// プロセッサー作成
 	patterns := []string{`^\[.*?\]\s*`, `\s*\(.*?\)$`}
-	proc, err := NewProcessor(patterns, []string{"要約"}, "summary")
+	proc, err := NewProcessor(patterns, []string{"要約"}, "summary", false)
 	if err != nil {
 		t.Fatalf("NewProcessor()でエラー: %v", err)
 	}
@@ -287,7 +287,7 @@ func TestNewProcessorWithInvalidPattern(t *testing.T) {
 	// 不正な正規表現パターン
 	patterns := []string{`[未閉じ`, `正常なパターン`, `(未閉じ`}
 
-	proc, err := NewProcessor(patterns, []string{"要約"}, "summary")
+	proc, err := NewProcessor(patterns, []string{"要約"}, "summary", false)
 	if err != nil {
 		t.Fatalf("NewProcessor()でエラー: %v", err)
 	}

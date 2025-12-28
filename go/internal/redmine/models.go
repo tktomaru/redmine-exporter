@@ -55,6 +55,22 @@ type Journal struct {
 	Notes     string  `json:"notes"`
 	CreatedOn string  `json:"created_on"`
 	Details   []JournalDetail `json:"details"`
+
+	// 処理用フィールド（APIレスポンスには含まれない）
+	ParsedCreatedOn *DateTime `json:"-"` // パース済みの作成日時（コメントフィルタ用）
+}
+
+// ParseCreatedOn はCreatedOn文字列をパースしてParsedCreatedOnに設定
+func (j *Journal) ParseCreatedOn() error {
+	if j.CreatedOn == "" {
+		return nil
+	}
+	t, err := time.Parse(time.RFC3339, j.CreatedOn)
+	if err != nil {
+		return err
+	}
+	j.ParsedCreatedOn = &DateTime{Time: t}
+	return nil
 }
 
 // JournalDetail はジャーナルの変更詳細

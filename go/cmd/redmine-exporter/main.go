@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/tktomaru/redmine-exporter/internal/config"
 	"github.com/tktomaru/redmine-exporter/internal/filter"
@@ -30,6 +31,12 @@ func main() {
 		week      = flag.String("week", "", "週指定 (last, this, YYYY-WW) 例: last, 2025-01")
 		weekStart = flag.String("week-start", "mon", "週の起点 (mon, sun)")
 		dateField = flag.String("date-field", "updated_on", "日時フィールド (updated_on, created_on, start_date, due_date)")
+
+		// コメント制御（フェーズ2）
+		comments       = flag.String("comments", "", "コメント抽出モード (last, all, n:3)")
+		commentsSince  = flag.String("comments-since", "", "コメント抽出の開始日時 (start, YYYY-MM-DD)")
+		commentsBy     = flag.String("comments-by", "", "コメント抽出対象ユーザー")
+		preferComments = flag.Bool("prefer-comments", false, "説明文よりコメントを優先")
 	)
 
 	flag.Usage = func() {
@@ -38,7 +45,8 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  redmine-exporter -o output.xlsx\n")
 		fmt.Fprintf(os.Stderr, "  redmine-exporter -o output.md --mode full\n")
 		fmt.Fprintf(os.Stderr, "  redmine-exporter -o output.txt --mode tags --tags \"要約,進捗\" --include-comments\n")
-		fmt.Fprintf(os.Stderr, "  redmine-exporter -o weekly.md --week last --week-start mon\n\n")
+		fmt.Fprintf(os.Stderr, "  redmine-exporter -o weekly.md --week last --week-start mon\n")
+		fmt.Fprintf(os.Stderr, "  redmine-exporter -o weekly.md --week last --comments last --comments-since start\n\n")
 		fmt.Fprintf(os.Stderr, "オプション:\n")
 		flag.PrintDefaults()
 		fmt.Fprintf(os.Stderr, "\n対応する出力形式:\n")
@@ -53,6 +61,11 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  --week last で先週分のチケットを一発で取得\n")
 		fmt.Fprintf(os.Stderr, "  --week-start で週の起点を月曜/日曜で切り替え\n")
 		fmt.Fprintf(os.Stderr, "  --date-field で更新日時/作成日時などでフィルタ\n")
+		fmt.Fprintf(os.Stderr, "\nコメント制御:\n")
+		fmt.Fprintf(os.Stderr, "  --comments last で最新コメントのみ抽出\n")
+		fmt.Fprintf(os.Stderr, "  --comments n:3 で最新3件のコメントを抽出\n")
+		fmt.Fprintf(os.Stderr, "  --comments-since start で週の開始以降のコメントのみ\n")
+		fmt.Fprintf(os.Stderr, "  --comments-by で特定ユーザーのコメントのみ抽出\n")
 	}
 
 	flag.Parse()
@@ -71,13 +84,13 @@ func main() {
 	}
 
 	// 実行
-	if err := run(*configPath, *outputPath, *mode, *tags, *includeComments, *week, *weekStart, *dateField); err != nil {
+	if err := run(*configPath, *outputPath, *mode, *tags, *includeComments, *week, *weekStart, *dateField, *comments, *commentsSince, *commentsBy, *preferComments); err != nil {
 		fmt.Fprintf(os.Stderr, "エラー: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func run(configPath, outputPath, modeFlag, tagsFlag string, includeCommentsFlag bool, weekFlag, weekStartFlag, dateFieldFlag string) error {
+func run(configPath, outputPath, modeFlag, tagsFlag string, includeCommentsFlag bool, weekFlag, weekStartFlag, dateFieldFlag, commentsMode, commentsSinceFlag, commentsByFlag string, preferCommentsFlag bool) error {
 	// 1. 設定ファイル読み込み
 	fmt.Printf("設定ファイルを読み込んでいます: %s\n", configPath)
 	cfg, err := config.LoadConfig(configPath)
@@ -141,9 +154,40 @@ func run(configPath, outputPath, modeFlag, tagsFlag string, includeCommentsFlag 
 	}
 	fmt.Printf("\r取得完了: %d 件のチケット\n", len(issues))
 
+	// 3.5. コメントフィルタの適用
+	if commentsMode != "" || commentsSinceFlag != "" || commentsByFlag != "" {
+		fmt.Println("コメントをフィルタリング中...")
+
+		// commentsSinceの解釈（"start" の場合は週の開始日を使用）
+		var commentsSinceDate *time.Time
+		if commentsSinceFlag == "start" && dateFilter != nil {
+			commentsSinceDate = &dateFilter.Start
+		} else if commentsSinceFlag != "" && commentsSinceFlag != "start" {
+			// YYYY-MM-DD形式をパース
+			t, err := time.Parse("2006-01-02", commentsSinceFlag)
+			if err != nil {
+				return fmt.Errorf("コメント開始日時の解析エラー: %w", err)
+			}
+			commentsSinceDate = &t
+		}
+
+		// CommentFilterを作成
+		commentFilter, err := filter.NewCommentFilter(commentsMode, commentsSinceDate, commentsByFlag)
+		if err != nil {
+			return fmt.Errorf("コメントフィルタ作成エラー: %w", err)
+		}
+
+		// 各チケットのジャーナルをフィルタリング
+		for _, issue := range issues {
+			issue.Journals = commentFilter.Filter(issue.Journals)
+		}
+
+		fmt.Println("コメントフィルタリング完了")
+	}
+
 	// 4. データ処理
 	fmt.Println("チケットを処理中...")
-	proc, err := processor.NewProcessor(cfg.TitleCleaning.Patterns, cfg.Output.TagNames, cfg.Output.Mode)
+	proc, err := processor.NewProcessor(cfg.TitleCleaning.Patterns, cfg.Output.TagNames, cfg.Output.Mode, preferCommentsFlag)
 	if err != nil {
 		return fmt.Errorf("プロセッサー初期化エラー: %w", err)
 	}

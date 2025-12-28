@@ -12,10 +12,11 @@ type Processor struct {
 	cleaningPatterns []*regexp.Regexp
 	tagNames         []string
 	mode             string
+	preferComments   bool // 説明文よりコメントを優先
 }
 
 // NewProcessor は新しいProcessorを作成
-func NewProcessor(patterns []string, tagNames []string, mode string) (*Processor, error) {
+func NewProcessor(patterns []string, tagNames []string, mode string, preferComments bool) (*Processor, error) {
 	regexps := make([]*regexp.Regexp, 0, len(patterns))
 
 	for _, pattern := range patterns {
@@ -36,6 +37,7 @@ func NewProcessor(patterns []string, tagNames []string, mode string) (*Processor
 		cleaningPatterns: regexps,
 		tagNames:         tagNames,
 		mode:             mode,
+		preferComments:   preferComments,
 	}, nil
 }
 
@@ -50,21 +52,33 @@ func (p *Processor) Process(issues []*redmine.Issue) []*redmine.Issue {
 		// タイトルクリーニング
 		issue.CleanedSubject = p.CleanTitle(issue.Subject)
 
+		// prefer-commentsの場合、コメントから内容を取得
+		contentSource := issue.Description
+		if p.preferComments && len(issue.Journals) > 0 {
+			// 最新のコメント（Notesが空でないもの）を取得
+			for i := len(issue.Journals) - 1; i >= 0; i-- {
+				if issue.Journals[i].Notes != "" {
+					contentSource = issue.Journals[i].Notes
+					break
+				}
+			}
+		}
+
 		// モードに応じて処理
 		switch p.mode {
 		case "tags":
 			// タグ抽出モード：複数のタグを抽出
-			issue.ExtractedTags = p.ExtractTags(p.tagNames, issue.Description, issue.Journals)
+			issue.ExtractedTags = p.ExtractTags(p.tagNames, contentSource, issue.Journals)
 			// 後方互換性のため、要約タグがあればSummaryにも設定
 			if summary, ok := issue.ExtractedTags["要約"]; ok {
 				issue.Summary = summary
 			}
 		case "full":
 			// フルモード：すべての情報を保持（特別な処理なし）
-			issue.Summary = p.ExtractSummary(issue.Description)
+			issue.Summary = p.ExtractSummary(contentSource)
 		default:
 			// summaryモード：要約のみ抽出（デフォルト動作）
-			issue.Summary = p.ExtractSummary(issue.Description)
+			issue.Summary = p.ExtractSummary(contentSource)
 		}
 	}
 
