@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,6 +20,98 @@ import (
 
 const version = "1.0.0"
 
+// parseTags はタグ文字列をパースしてTagConfigの配列を返す
+// commentsMaxはコメント抽出の上限（n:3の3）で、タグごとの上限として扱われる
+// 形式: "要約:3,進捗:5,課題" + commentsMax=3 → [{Name: "要約", Limit: 3}, {Name: "進捗", Limit: 3}, {Name: "課題", Limit: 3}]
+func parseTags(tagsStr string, commentsMax int) ([]processor.TagConfig, []string, error) {
+	if tagsStr == "" {
+		return nil, nil, nil
+	}
+
+	parts := strings.Split(tagsStr, ",")
+	configs := make([]processor.TagConfig, 0, len(parts))
+	names := make([]string, 0, len(parts))
+
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+
+		var limit int
+
+		// "タグ名:件数" の形式をパース
+		if strings.Contains(part, ":") {
+			subparts := strings.SplitN(part, ":", 2)
+			name := strings.TrimSpace(subparts[0])
+			limitStr := strings.TrimSpace(subparts[1])
+
+			tagLimit, err := strconv.Atoi(limitStr)
+			if err != nil {
+				return nil, nil, fmt.Errorf("タグ %s の件数指定が不正です: %s", name, limitStr)
+			}
+			if tagLimit < 0 {
+				return nil, nil, fmt.Errorf("タグ %s の件数は0以上を指定してください: %d", name, tagLimit)
+			}
+
+			// タグ個別指定とコメント上限の小さい方を採用（0は無制限）
+			if commentsMax > 0 && tagLimit > 0 {
+				limit = min(tagLimit, commentsMax)
+			} else if commentsMax > 0 {
+				limit = commentsMax
+			} else {
+				limit = tagLimit
+			}
+
+			configs = append(configs, processor.TagConfig{Name: name, Limit: limit})
+			names = append(names, name)
+		} else {
+			// 件数指定なし → commentsMaxを使用
+			if commentsMax > 0 {
+				limit = commentsMax
+			} else {
+				limit = 0 // 無制限
+			}
+
+			configs = append(configs, processor.TagConfig{Name: part, Limit: limit})
+			names = append(names, part)
+		}
+	}
+
+	return configs, names, nil
+}
+
+// min は2つの整数の最小値を返す
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// parseCommentsLimit はコメントモードから件数上限を抽出
+// "n:3" → 3, "last" → 0, "all" → 0
+func parseCommentsLimit(commentsMode string) (int, error) {
+	if commentsMode == "" || commentsMode == "last" || commentsMode == "all" {
+		return 0, nil
+	}
+
+	// "n:3" 形式をパース
+	if strings.HasPrefix(commentsMode, "n:") {
+		limitStr := strings.TrimPrefix(commentsMode, "n:")
+		limit, err := strconv.Atoi(limitStr)
+		if err != nil {
+			return 0, fmt.Errorf("コメント件数の形式エラー: %s", commentsMode)
+		}
+		if limit <= 0 {
+			return 0, fmt.Errorf("コメント件数は1以上を指定してください: %d", limit)
+		}
+		return limit, nil
+	}
+
+	return 0, fmt.Errorf("不正なコメントモード: %s", commentsMode)
+}
+
 func main() {
 	// コマンドライン引数の定義
 	var (
@@ -26,7 +119,7 @@ func main() {
 		outputPath      = flag.String("o", "", "出力ファイルのパス（必須）")
 		showVersion     = flag.Bool("v", false, "バージョン情報を表示")
 		mode            = flag.String("mode", "", "出力モード (summary, full, tags) ※設定ファイルより優先")
-		tags            = flag.String("tags", "", "抽出するタグ名（カンマ区切り） 例: 要約,進捗,課題")
+		tags            = flag.String("tags", "", "抽出するタグ名（カンマ区切り、個別上限指定可） 例: 要約:5,進捗,課題:2")
 		includeComments = flag.Bool("include-comments", false, "コメントからもタグを抽出する")
 
 		// 週報機能（フェーズ1）
@@ -35,7 +128,7 @@ func main() {
 		dateField = flag.String("date-field", "updated_on", "日時フィールド (updated_on, created_on, start_date, due_date)")
 
 		// コメント制御（フェーズ2）
-		comments       = flag.String("comments", "", "コメント抽出モード (last, all, n:3)")
+		comments       = flag.String("comments", "", "コメント抽出モード (last, all, n:3) ※n:3はタグごとの上限にもなる")
 		commentsSince  = flag.String("comments-since", "", "コメント抽出の開始日時 (auto, start, YYYY-MM-DD)")
 		commentsBy     = flag.String("comments-by", "", "コメント抽出対象ユーザー")
 		preferComments = flag.Bool("prefer-comments", false, "説明文よりコメントを優先")
@@ -63,7 +156,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "使い方:\n")
 		fmt.Fprintf(os.Stderr, "  redmine-exporter -o output.xlsx\n")
 		fmt.Fprintf(os.Stderr, "  redmine-exporter -o output.md --mode full\n")
-		fmt.Fprintf(os.Stderr, "  redmine-exporter -o output.txt --mode tags --tags \"要約,進捗\" --include-comments\n")
+		fmt.Fprintf(os.Stderr, "  redmine-exporter -o output.txt --mode tags --tags \"要約,進捗,課題\" --comments n:3 --include-comments\n")
 		fmt.Fprintf(os.Stderr, "  redmine-exporter -o weekly.md --week last --week-start mon\n")
 		fmt.Fprintf(os.Stderr, "  redmine-exporter -o weekly.md --week last --comments last --comments-since start\n\n")
 		fmt.Fprintf(os.Stderr, "オプション:\n")
@@ -76,6 +169,11 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  summary - 要約のみ出力（デフォルト）\n")
 		fmt.Fprintf(os.Stderr, "  full    - すべてのフィールドを出力\n")
 		fmt.Fprintf(os.Stderr, "  tags    - 指定したタグの内容を抽出\n")
+		fmt.Fprintf(os.Stderr, "\nタグ機能:\n")
+		fmt.Fprintf(os.Stderr, "  --tags \"要約,進捗,課題\" でタグを指定\n")
+		fmt.Fprintf(os.Stderr, "  --tags \"要約:3,進捗:5,課題\" でタグごとに個別の上限を指定\n")
+		fmt.Fprintf(os.Stderr, "  --comments n:3 がすべてのタグの共通上限（個別指定と比較して小さい方を採用）\n")
+		fmt.Fprintf(os.Stderr, "  例: --comments n:3 --tags \"要約:5,進捗\" → 要約は3件、進捗は3件\n")
 		fmt.Fprintf(os.Stderr, "\n週報機能:\n")
 		fmt.Fprintf(os.Stderr, "  --week last で先週分のチケットを一発で取得\n")
 		fmt.Fprintf(os.Stderr, "  --week-start で週の起点を月曜/日曜で切り替え\n")
@@ -165,12 +263,33 @@ func run(configPath, outputPath, modeFlag, tagsFlag string, includeCommentsFlag 
 	if modeFlag != "" {
 		cfg.Output.Mode = modeFlag
 	}
-	if tagsFlag != "" {
-		cfg.Output.TagNames = strings.Split(tagsFlag, ",")
-		for i := range cfg.Output.TagNames {
-			cfg.Output.TagNames[i] = strings.TrimSpace(cfg.Output.TagNames[i])
+
+	// コメント件数の上限を取得
+	commentsMax := 0
+	if commentsMode != "" {
+		var err error
+		commentsMax, err = parseCommentsLimit(commentsMode)
+		if err != nil {
+			return fmt.Errorf("コメント設定のパースエラー: %w", err)
 		}
 	}
+
+	// タグのパース（件数制限をサポート、commentsが上限）
+	var tagConfigs []processor.TagConfig
+	if tagsFlag != "" {
+		var err error
+		tagConfigs, cfg.Output.TagNames, err = parseTags(tagsFlag, commentsMax)
+		if err != nil {
+			return fmt.Errorf("タグのパースエラー: %w", err)
+		}
+	} else if len(cfg.Output.TagNames) > 0 {
+		// 設定ファイルから読み込んだ場合はcommentsMaxを適用
+		tagConfigs = make([]processor.TagConfig, len(cfg.Output.TagNames))
+		for i, name := range cfg.Output.TagNames {
+			tagConfigs[i] = processor.TagConfig{Name: name, Limit: commentsMax}
+		}
+	}
+
 	if includeCommentsFlag {
 		cfg.Output.IncludeComments = true
 	}
@@ -334,7 +453,7 @@ func run(configPath, outputPath, modeFlag, tagsFlag string, includeCommentsFlag 
 
 	// 4. データ処理
 	fmt.Println("チケットを処理中...")
-	proc, err := processor.NewProcessor(cfg.TitleCleaning.Patterns, cfg.Output.TagNames, cfg.Output.Mode, preferCommentsFlag, cfg.Output.IncludeComments)
+	proc, err := processor.NewProcessor(cfg.TitleCleaning.Patterns, tagConfigs, cfg.Output.Mode, preferCommentsFlag, cfg.Output.IncludeComments)
 	if err != nil {
 		return fmt.Errorf("プロセッサー初期化エラー: %w", err)
 	}

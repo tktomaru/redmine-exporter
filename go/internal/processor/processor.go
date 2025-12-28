@@ -9,17 +9,23 @@ import (
 	"github.com/tktomaru/redmine-exporter/internal/redmine"
 )
 
+// TagConfig はタグ名と出力件数制限を保持する
+type TagConfig struct {
+	Name  string // タグ名
+	Limit int    // 出力件数制限（0は無制限）
+}
+
 // Processor はチケットデータの処理を行う
 type Processor struct {
 	cleaningPatterns []*regexp.Regexp
-	tagNames         []string
+	tagConfigs       []TagConfig // タグ設定（名前と件数制限）
 	mode             string
 	preferComments   bool // 説明文よりコメントを優先
 	includeComments  bool // コメントからもタグを抽出
 }
 
 // NewProcessor は新しいProcessorを作成
-func NewProcessor(patterns []string, tagNames []string, mode string, preferComments bool, includeComments bool) (*Processor, error) {
+func NewProcessor(patterns []string, tagConfigs []TagConfig, mode string, preferComments bool, includeComments bool) (*Processor, error) {
 	regexps := make([]*regexp.Regexp, 0, len(patterns))
 
 	for _, pattern := range patterns {
@@ -38,7 +44,7 @@ func NewProcessor(patterns []string, tagNames []string, mode string, preferComme
 
 	return &Processor{
 		cleaningPatterns: regexps,
-		tagNames:         tagNames,
+		tagConfigs:       tagConfigs,
 		mode:             mode,
 		preferComments:   preferComments,
 		includeComments:  includeComments,
@@ -56,23 +62,12 @@ func (p *Processor) Process(issues []*redmine.Issue) []*redmine.Issue {
 		// タイトルクリーニング
 		issue.CleanedSubject = p.CleanTitle(issue.Subject)
 
-		// prefer-commentsの場合、コメントから内容を取得
-		contentSource := issue.Description
-		if p.preferComments && len(issue.Journals) > 0 {
-			// 最新のコメント（Notesが空でないもの）を取得
-			for i := len(issue.Journals) - 1; i >= 0; i-- {
-				if issue.Journals[i].Notes != "" {
-					contentSource = issue.Journals[i].Notes
-					break
-				}
-			}
-		}
-
 		// モードに応じて処理
 		switch p.mode {
 		case "tags":
 			// タグ抽出モード：複数のタグを抽出
-			issue.ExtractedTags = p.ExtractTags(p.tagNames, contentSource, issue.Journals)
+			// 説明文は常にissue.Descriptionから、コメントは別途独立して処理
+			issue.ExtractedTags = p.ExtractTags(issue.Description, issue.Journals)
 			// デバッグ：タグ抽出結果を表示
 			if len(issue.ExtractedTags) > 0 {
 				// fmt.Fprintf(os.Stderr, "[DEBUG] Issue #%d: ExtractedTags=%v (journals=%d)\n",
@@ -84,10 +79,10 @@ func (p *Processor) Process(issues []*redmine.Issue) []*redmine.Issue {
 			}
 		case "full":
 			// フルモード：すべての情報を保持（特別な処理なし）
-			issue.Summary = p.ExtractSummary(contentSource)
+			issue.Summary = p.ExtractSummary(issue.Description)
 		default:
 			// summaryモード：要約のみ抽出（デフォルト動作）
-			issue.Summary = p.ExtractSummary(contentSource)
+			issue.Summary = p.ExtractSummary(issue.Description)
 		}
 	}
 
@@ -149,36 +144,46 @@ func (p *Processor) ExtractTag(tagName, text string) string {
 }
 
 // ExtractTags は複数のタグを抽出してマップで返す
-// 各タグは複数の値を配列で保持する
-func (p *Processor) ExtractTags(tagNames []string, description string, journals []redmine.Journal) map[string][]string {
+// 各タグは複数の値を配列で保持し、TagConfigの件数制限を適用する
+// 説明文とコメントは独立して処理される
+func (p *Processor) ExtractTags(description string, journals []redmine.Journal) map[string][]string {
 	result := make(map[string][]string)
 
-	// 説明文から抽出
-	for _, tagName := range tagNames {
-		if content := p.ExtractTag(tagName, description); content != "" {
-			result[tagName] = append(result[tagName], content)
+	// 説明文から抽出（説明文のみから）
+	for _, tagConfig := range p.tagConfigs {
+		if content := p.ExtractTag(tagConfig.Name, description); content != "" {
+			result[tagConfig.Name] = append(result[tagConfig.Name], content)
 			// デバッグ: 説明文から抽出
-			fmt.Fprintf(os.Stderr, "[DEBUG] 説明文から抽出: タグ=%s, 内容=%q\n", tagName, content)
+			fmt.Fprintf(os.Stderr, "[DEBUG] 説明文から抽出: タグ=%s, 内容=%q\n", tagConfig.Name, content)
 		}
 	}
 
-	// ジャーナル（コメント）からも抽出（includeCommentsがtrueの場合のみ）
+	// ジャーナル（コメント）から抽出（includeCommentsがtrueの場合のみ）
+	// コメントからの抽出は説明文の結果とは独立して行われる
 	if p.includeComments {
 		fmt.Fprintf(os.Stderr, "[DEBUG] ExtractTags: includeComments=true, journals=%d\n", len(journals))
 		// 最新のコメントから順に処理（逆順）
-		// for i := len(journals) - 1; i >= 0; i-- {
-		for i := 0; i < len(journals); i++ {
+		for i := len(journals) - 1; i >= 0; i-- {
 			journal := journals[i]
 			if journal.Notes == "" {
 				continue
 			}
 			fmt.Fprintf(os.Stderr, "[DEBUG] ジャーナル[%d]: Notes=%q\n", i, journal.Notes)
-			for _, tagName := range tagNames {
-				if content := p.ExtractTag(tagName, journal.Notes); content != "" {
-					result[tagName] = append(result[tagName], content)
-					fmt.Fprintf(os.Stderr, "[DEBUG] ジャーナルから抽出成功: タグ=%s, 内容=%q (合計%d個)\n", tagName, content, len(result[tagName]))
+			for _, tagConfig := range p.tagConfigs {
+				if content := p.ExtractTag(tagConfig.Name, journal.Notes); content != "" {
+					result[tagConfig.Name] = append(result[tagConfig.Name], content)
+					fmt.Fprintf(os.Stderr, "[DEBUG] ジャーナルから抽出成功: タグ=%s, 内容=%q (合計%d個)\n", tagConfig.Name, content, len(result[tagConfig.Name]))
 				}
 			}
+		}
+	}
+
+	// 件数制限を適用
+	for _, tagConfig := range p.tagConfigs {
+		if tagConfig.Limit > 0 && len(result[tagConfig.Name]) > tagConfig.Limit {
+			// 最新のN件を保持（配列の最初から取得、ジャーナルは逆順処理のため最新が先頭）
+			result[tagConfig.Name] = result[tagConfig.Name][:tagConfig.Limit]
+			fmt.Fprintf(os.Stderr, "[DEBUG] タグ %s の件数制限を適用: %d件に制限\n", tagConfig.Name, tagConfig.Limit)
 		}
 	}
 
