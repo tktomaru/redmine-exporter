@@ -1,0 +1,54 @@
+version: '3.8'
+
+services:
+  # PostgreSQLデータベース
+  redmine-db:
+    image: postgres:15-alpine
+    container_name: redmine-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Database password is required}
+      POSTGRES_DB: ${POSTGRES_DB:?Database name is required}
+      POSTGRES_USER: ${POSTGRES_USER:?Database user is required}
+    volumes:
+      - ./docker/redmine-db-data:/var/lib/postgresql/data
+    # networks:
+    #   - redmine-network
+
+  # Redmine本体
+  redmine-server:
+    image: redmine:5.1-alpine
+    container_name: redmine-server
+    restart: unless-stopped
+    ports:
+      - "${REDMINE_PORT:-3000}:3000"
+    environment:
+      REDMINE_DB_POSTGRES: redmine-db
+      REDMINE_DB_DATABASE: ${POSTGRES_DB:?Database name is required}
+      REDMINE_DB_USERNAME: ${POSTGRES_USER:?Database user is required}
+      REDMINE_DB_PASSWORD: ${POSTGRES_PASSWORD:?Database password is required}
+      REDMINE_SECRET_KEY_BASE: ${REDMINE_SECRET_KEY_BASE:?Secret key base is required}
+      # 日本語対応
+      REDMINE_DEFAULT_LANGUAGE: ja
+    volumes:
+      - ./docker/redmine-files:/usr/src/redmine/files
+      - ./docker/redmine-plugins:/usr/src/redmine/plugins
+      - ./docker/redmine-themes:/usr/src/redmine/public/themes
+    depends_on:
+      - redmine-db
+    # networks:
+    #   - redmine-network
+
+# volumes:
+#   redmine-db-data:
+#     driver: local
+#   redmine-files:
+#     driver: local
+#   redmine-plugins:
+#     driver: local
+#   redmine-themes:
+#     driver: local
+
+# networks:
+#   redmine-network:
+#     driver: bridge

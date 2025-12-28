@@ -1,0 +1,25 @@
+[Redmine]
+; RedmineのベースURL
+BaseUrl=https://redmine.example.com
+
+; Redmine APIキー（ユーザー設定から取得）
+ApiKey=YOUR_API_KEY_HERE
+
+; フィルタURL（Redmineのチケット一覧画面でフィルタリングした後のURLから抽出）
+; 例: https://redmine.example.com/issues.json?project_id=2&status_id=*&sort=parent:asc,id:asc
+; の場合、/issues.json以降の部分を指定
+FilterUrl=/issues.json?project_id=2&status_id=*&sort=parent:asc,id:asc
+
+[TitleCleaning]
+; タイトルから削除する文字列パターン（正規表現）
+; 複数指定可能（Pattern1, Pattern2, Pattern3...の順に適用されます）
+
+; プレフィックスを削除（例: [WIP] や [完了] など）
+Pattern1=^\[.*?\]\s*
+
+; サフィックスを削除（例: (完了予定) など）
+Pattern2=\s*\(.*?\)$
+
+; その他のパターンを追加する場合
+;Pattern3=...
+;Pattern4=...

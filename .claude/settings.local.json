@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(go mod init:*)",
+      "Bash(go get:*)",
+      "Bash(make build:*)",
+      "Bash(go test:*)",
+      "Bash(./bin/redmine-exporter:*)",
+      "Bash(ip addr:*)",
+      "Bash(cat:*)"
+    ]
+  }
+}

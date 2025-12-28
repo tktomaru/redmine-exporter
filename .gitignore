@@ -1,0 +1,19 @@
+# Redmine設定ファイル（APIキーを含むため）
+redmine.config
+
+# 環境変数ファイル（認証情報を含むため）
+.env
+
+# Excelファイル
+# *.xlsm
+# *.xlsx
+# ~$*.xls*
+
+# VBAバックアップ
+*.bas~
+*.vb~
+
+# Docker volumes（データ永続化）
+.docker/
+docker/
+docker-volumes/
