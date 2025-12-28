@@ -306,7 +306,7 @@ func TestExtractTags_FromJournals(t *testing.T) {
 		description      string
 		journals         []redmine.Journal
 		includeComments  bool
-		want             map[string]string
+		want             map[string][]string
 	}{
 		{
 			name:        "ジャーナルからタグ抽出（includeComments=true）",
@@ -323,9 +323,9 @@ func TestExtractTags_FromJournals(t *testing.T) {
 				},
 			},
 			includeComments: true,
-			want: map[string]string{
-				"進捗": "バグが発生しました",
-				"課題": "修正が必要です",
+			want: map[string][]string{
+				"進捗": {"バグが発生しました"},
+				"課題": {"修正が必要です"},
 			},
 		},
 		{
@@ -339,10 +339,10 @@ func TestExtractTags_FromJournals(t *testing.T) {
 				},
 			},
 			includeComments: false,
-			want:            map[string]string{}, // includeComments=falseなので抽出されない
+			want:            map[string][]string{}, // includeComments=falseなので抽出されない
 		},
 		{
-			name:        "説明文とジャーナル両方にタグ（説明文優先）",
+			name:        "説明文とジャーナル両方にタグ（両方抽出）",
 			tagNames:    []string{"進捗"},
 			description: "[進捗]説明文の進捗[/進捗]",
 			journals: []redmine.Journal{
@@ -352,8 +352,8 @@ func TestExtractTags_FromJournals(t *testing.T) {
 				},
 			},
 			includeComments: true,
-			want: map[string]string{
-				"進捗": "説明文の進捗", // 説明文が優先される
+			want: map[string][]string{
+				"進捗": {"説明文の進捗", "コメントの進捗"}, // 両方抽出される
 			},
 		},
 		{
@@ -367,10 +367,10 @@ func TestExtractTags_FromJournals(t *testing.T) {
 				},
 			},
 			includeComments: true,
-			want:            map[string]string{},
+			want:            map[string][]string{},
 		},
 		{
-			name:        "複数のジャーナル（最新のタグのみ抽出）",
+			name:        "複数のジャーナル（すべて抽出）",
 			tagNames:    []string{"進捗"},
 			description: "説明文",
 			journals: []redmine.Journal{
@@ -384,8 +384,8 @@ func TestExtractTags_FromJournals(t *testing.T) {
 				},
 			},
 			includeComments: true,
-			want: map[string]string{
-				"進捗": "二番目のコメント", // 最新のコメントから抽出
+			want: map[string][]string{
+				"進捗": {"二番目のコメント", "最初のコメント"}, // 最新から順に抽出
 			},
 		},
 	}
@@ -403,14 +403,20 @@ func TestExtractTags_FromJournals(t *testing.T) {
 				t.Errorf("ExtractTags() 結果の数 = %d; want %d", len(got), len(tt.want))
 			}
 
-			for tagName, wantContent := range tt.want {
-				gotContent, ok := got[tagName]
+			for tagName, wantContents := range tt.want {
+				gotContents, ok := got[tagName]
 				if !ok {
 					t.Errorf("ExtractTags() タグ %q が見つかりません", tagName)
 					continue
 				}
-				if gotContent != wantContent {
-					t.Errorf("ExtractTags() タグ %q の内容 = %q; want %q", tagName, gotContent, wantContent)
+				if len(gotContents) != len(wantContents) {
+					t.Errorf("ExtractTags() タグ %q の値の数 = %d; want %d", tagName, len(gotContents), len(wantContents))
+					continue
+				}
+				for i := range wantContents {
+					if gotContents[i] != wantContents[i] {
+						t.Errorf("ExtractTags() タグ %q の値[%d] = %q; want %q", tagName, i, gotContents[i], wantContents[i])
+					}
 				}
 			}
 		})
@@ -454,13 +460,13 @@ func TestProcess_WithJournalTags(t *testing.T) {
 
 	if got, ok := roots[0].ExtractedTags["進捗"]; !ok {
 		t.Error("タグ '進捗' が見つかりません")
-	} else if got != "バグが発生しました" {
-		t.Errorf("タグ '進捗' の内容 = %q; want 'バグが発生しました'", got)
+	} else if len(got) != 1 || got[0] != "バグが発生しました" {
+		t.Errorf("タグ '進捗' の内容 = %q; want ['バグが発生しました']", got)
 	}
 
 	if got, ok := roots[0].ExtractedTags["課題"]; !ok {
 		t.Error("タグ '課題' が見つかりません")
-	} else if got != "修正が必要です" {
-		t.Errorf("タグ '課題' の内容 = %q; want '修正が必要です'", got)
+	} else if len(got) != 1 || got[0] != "修正が必要です" {
+		t.Errorf("タグ '課題' の内容 = %q; want ['修正が必要です']", got)
 	}
 }

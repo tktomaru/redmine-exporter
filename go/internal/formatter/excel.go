@@ -3,10 +3,11 @@ package formatter
 import (
 	"fmt"
 	"io"
+	"strings"
 
-	"github.com/xuri/excelize/v2"
 	"github.com/tktomaru/redmine-exporter/internal/processor"
 	"github.com/tktomaru/redmine-exporter/internal/redmine"
+	"github.com/xuri/excelize/v2"
 )
 
 // ExcelFormatter はExcel形式で出力（VBA版と同じテーブル形式）
@@ -154,8 +155,18 @@ func (f *ExcelFormatter) writeIssueRow(file *excelize.File, sheetName string, ro
 
 		// 各タグの内容を出力
 		for _, tagName := range f.tagNames {
-			if content, ok := issue.ExtractedTags[tagName]; ok {
-				setCellValue(content)
+			if contents, ok := issue.ExtractedTags[tagName]; ok && len(contents) > 0 {
+				if len(contents) == 1 {
+					// 1つだけの場合はそのまま
+					setCellValue(contents[0])
+				} else {
+					// 複数ある場合は番号付きリストで結合
+					var lines []string
+					for i, content := range contents {
+						lines = append(lines, fmt.Sprintf("%d. %s", i+1, content))
+					}
+					setCellValue(strings.Join(lines, "\n"))
+				}
 			} else {
 				setCellValue("")
 			}

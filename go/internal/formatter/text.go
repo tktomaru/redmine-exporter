@@ -74,8 +74,16 @@ func (f *TextFormatter) printIssueDetails(w io.Writer, issue *redmine.Issue, iss
 		// タグモード：指定されたタグの内容を表示
 		fmt.Fprintf(w, "　【%s】 %s-%s 担当: %s\n", issue.Status.Name, startDate, dueDate, assignee)
 		for _, tagName := range f.tagNames {
-			if content, ok := issue.ExtractedTags[tagName]; ok && content != "" {
-				fmt.Fprintf(w, "　[%s] %s\n", tagName, content)
+			if contents, ok := issue.ExtractedTags[tagName]; ok && len(contents) > 0 {
+				if len(contents) == 1 {
+					// 1つだけの場合は単一行で表示
+					fmt.Fprintf(w, "　[%s] %s\n", tagName, contents[0])
+				} else {
+					// 複数ある場合はリスト形式で表示
+					for i, content := range contents {
+						fmt.Fprintf(w, "　[%s%d] %s\n", tagName, i+1, content)
+					}
+				}
 			}
 		}
 

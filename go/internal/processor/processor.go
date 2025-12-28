@@ -78,9 +78,9 @@ func (p *Processor) Process(issues []*redmine.Issue) []*redmine.Issue {
 				// fmt.Fprintf(os.Stderr, "[DEBUG] Issue #%d: ExtractedTags=%v (journals=%d)\n",
 				// 	issue.ID, issue.ExtractedTags, len(issue.Journals))
 			}
-			// 後方互換性のため、要約タグがあればSummaryにも設定
-			if summary, ok := issue.ExtractedTags["要約"]; ok {
-				issue.Summary = summary
+			// 後方互換性のため、要約タグがあればSummaryにも設定（最初の値を使用）
+			if summaries, ok := issue.ExtractedTags["要約"]; ok && len(summaries) > 0 {
+				issue.Summary = summaries[0]
 			}
 		case "full":
 			// フルモード：すべての情報を保持（特別な処理なし）
@@ -142,20 +142,21 @@ func (p *Processor) ExtractTag(tagName, text string) string {
 	}
 
 	// タグがない場合は空文字列を返す（要約タグの場合のみFirstLineを返す）
-	if tagName == "要約" {
-		return p.firstLine(text)
-	}
+	// if tagName == "要約" {
+	// 	return p.firstLine(text)
+	// }
 	return ""
 }
 
 // ExtractTags は複数のタグを抽出してマップで返す
-func (p *Processor) ExtractTags(tagNames []string, description string, journals []redmine.Journal) map[string]string {
-	result := make(map[string]string)
+// 各タグは複数の値を配列で保持する
+func (p *Processor) ExtractTags(tagNames []string, description string, journals []redmine.Journal) map[string][]string {
+	result := make(map[string][]string)
 
 	// 説明文から抽出
 	for _, tagName := range tagNames {
 		if content := p.ExtractTag(tagName, description); content != "" {
-			result[tagName] = content
+			result[tagName] = append(result[tagName], content)
 			// デバッグ: 説明文から抽出
 			fmt.Fprintf(os.Stderr, "[DEBUG] 説明文から抽出: タグ=%s, 内容=%q\n", tagName, content)
 		}
@@ -165,21 +166,17 @@ func (p *Processor) ExtractTags(tagNames []string, description string, journals 
 	if p.includeComments {
 		fmt.Fprintf(os.Stderr, "[DEBUG] ExtractTags: includeComments=true, journals=%d\n", len(journals))
 		// 最新のコメントから順に処理（逆順）
-		for i := len(journals) - 1; i >= 0; i-- {
+		// for i := len(journals) - 1; i >= 0; i-- {
+		for i := 0; i < len(journals); i++ {
 			journal := journals[i]
 			if journal.Notes == "" {
 				continue
 			}
 			fmt.Fprintf(os.Stderr, "[DEBUG] ジャーナル[%d]: Notes=%q\n", i, journal.Notes)
 			for _, tagName := range tagNames {
-				// すでに抽出済みの場合はスキップ
-				if _, exists := result[tagName]; exists {
-					fmt.Fprintf(os.Stderr, "[DEBUG] タグ %q は既に抽出済み（スキップ）\n", tagName)
-					continue
-				}
 				if content := p.ExtractTag(tagName, journal.Notes); content != "" {
-					result[tagName] = content
-					fmt.Fprintf(os.Stderr, "[DEBUG] ジャーナルから抽出成功: タグ=%s, 内容=%q\n", tagName, content)
+					result[tagName] = append(result[tagName], content)
+					fmt.Fprintf(os.Stderr, "[DEBUG] ジャーナルから抽出成功: タグ=%s, 内容=%q (合計%d個)\n", tagName, content, len(result[tagName]))
 				}
 			}
 		}

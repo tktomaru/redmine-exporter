@@ -86,8 +86,17 @@ func (f *MarkdownFormatter) printIssueDetails(w io.Writer, issue *redmine.Issue,
 		}
 
 		for _, tagName := range f.tagNames {
-			if content, ok := issue.ExtractedTags[tagName]; ok && content != "" {
-				fmt.Fprintf(w, "  - **[%s]**: %s\n", tagName, content)
+			if contents, ok := issue.ExtractedTags[tagName]; ok && len(contents) > 0 {
+				if len(contents) == 1 {
+					// 1つだけの場合は単一行で表示
+					fmt.Fprintf(w, "  - **[%s]**: %s\n", tagName, contents[0])
+				} else {
+					// 複数ある場合はリスト形式で表示
+					fmt.Fprintf(w, "  - **[%s]**:\n", tagName)
+					for i, content := range contents {
+						fmt.Fprintf(w, "    %d. %s\n", i+1, content)
+					}
+				}
 			}
 		}
 		fmt.Fprintln(w)

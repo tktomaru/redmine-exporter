@@ -31,10 +31,10 @@ type Issue struct {
 	CreatedOn   *DateTime  `json:"created_on"` // 作成日時（週報機能用）
 
 	// 処理用フィールド（APIレスポンスには含まれない）
-	CleanedSubject string            `json:"-"`
-	Summary        string            `json:"-"`
-	ExtractedTags  map[string]string `json:"-"` // タグ名 -> 抽出内容
-	Children       []*Issue          `json:"-"`
+	CleanedSubject string              `json:"-"`
+	Summary        string              `json:"-"`
+	ExtractedTags  map[string][]string `json:"-"` // タグ名 -> 抽出内容の配列（複数値対応）
+	Children       []*Issue            `json:"-"`
 }
 
 // IDName はID+名前を持つRedmineオブジェクト
