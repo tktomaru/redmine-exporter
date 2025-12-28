@@ -37,6 +37,10 @@ func main() {
 		commentsSince  = flag.String("comments-since", "", "コメント抽出の開始日時 (start, YYYY-MM-DD)")
 		commentsBy     = flag.String("comments-by", "", "コメント抽出対象ユーザー")
 		preferComments = flag.Bool("prefer-comments", false, "説明文よりコメントを優先")
+
+		// グルーピング・ソート（フェーズ3）
+		groupBy = flag.String("group-by", "", "グルーピング方法 (assignee, status, tracker, project, priority)")
+		sortBy  = flag.String("sort", "", "ソート方法 (updated_on, created_on, due_date, start_date, priority, id)")
 	)
 
 	flag.Usage = func() {
@@ -66,6 +70,11 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  --comments n:3 で最新3件のコメントを抽出\n")
 		fmt.Fprintf(os.Stderr, "  --comments-since start で週の開始以降のコメントのみ\n")
 		fmt.Fprintf(os.Stderr, "  --comments-by で特定ユーザーのコメントのみ抽出\n")
+		fmt.Fprintf(os.Stderr, "\nグルーピング・ソート:\n")
+		fmt.Fprintf(os.Stderr, "  --group-by assignee で担当者別にグルーピング\n")
+		fmt.Fprintf(os.Stderr, "  --group-by status でステータス別にグルーピング\n")
+		fmt.Fprintf(os.Stderr, "  --sort updated_on で更新日時順にソート\n")
+		fmt.Fprintf(os.Stderr, "  --sort due_date で期日順にソート\n")
 	}
 
 	flag.Parse()
@@ -84,13 +93,13 @@ func main() {
 	}
 
 	// 実行
-	if err := run(*configPath, *outputPath, *mode, *tags, *includeComments, *week, *weekStart, *dateField, *comments, *commentsSince, *commentsBy, *preferComments); err != nil {
+	if err := run(*configPath, *outputPath, *mode, *tags, *includeComments, *week, *weekStart, *dateField, *comments, *commentsSince, *commentsBy, *preferComments, *groupBy, *sortBy); err != nil {
 		fmt.Fprintf(os.Stderr, "エラー: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func run(configPath, outputPath, modeFlag, tagsFlag string, includeCommentsFlag bool, weekFlag, weekStartFlag, dateFieldFlag, commentsMode, commentsSinceFlag, commentsByFlag string, preferCommentsFlag bool) error {
+func run(configPath, outputPath, modeFlag, tagsFlag string, includeCommentsFlag bool, weekFlag, weekStartFlag, dateFieldFlag, commentsMode, commentsSinceFlag, commentsByFlag string, preferCommentsFlag bool, groupByFlag, sortByFlag string) error {
 	// 1. 設定ファイル読み込み
 	fmt.Printf("設定ファイルを読み込んでいます: %s\n", configPath)
 	cfg, err := config.LoadConfig(configPath)
@@ -192,6 +201,56 @@ func run(configPath, outputPath, modeFlag, tagsFlag string, includeCommentsFlag 
 		return fmt.Errorf("プロセッサー初期化エラー: %w", err)
 	}
 	roots := proc.Process(issues)
+
+	// 4.5. グルーピング・ソート
+	if sortByFlag != "" || groupByFlag != "" {
+		fmt.Println("チケットをソート・グルーピング中...")
+
+		// ルートチケットと子チケットをフラットなリストに展開
+		var allIssues []*redmine.Issue
+		for _, root := range roots {
+			allIssues = append(allIssues, root)
+			allIssues = append(allIssues, root.Children...)
+		}
+
+		// ソート
+		if sortByFlag != "" {
+			sorter := processor.NewSorter(sortByFlag)
+			if sorter != nil {
+				sorter.Sort(allIssues)
+			}
+		}
+
+		// グルーピング
+		if groupByFlag != "" {
+			grouper := processor.NewGrouper(groupByFlag)
+			if grouper != nil {
+				grouped := grouper.Group(allIssues)
+
+				// グルーピング後、各グループ内でもソートを適用
+				if sortByFlag != "" {
+					sorter := processor.NewSorter(sortByFlag)
+					if sorter != nil {
+						for _, key := range grouped.Keys {
+							sorter.Sort(grouped.Groups[key])
+						}
+					}
+				}
+
+				// グルーピング結果をフラットに戻す
+				allIssues = processor.FlattenGroupedIssues(grouped)
+			}
+		}
+
+		// ソート・グルーピング後、親子関係を再構築せずにフラットなリストとして扱う
+		// （グルーピング表示では親子関係より、グループ内の並びが重要）
+		roots = make([]*redmine.Issue, 0, len(allIssues))
+		for _, issue := range allIssues {
+			// 子チケットのChildrenをクリアして、フラットに扱う
+			issue.Children = nil
+			roots = append(roots, issue)
+		}
+	}
 
 	// 出力するチケット数をカウント
 	ticketCount := 0
