@@ -1,8 +1,6 @@
 package processor
 
 import (
-	"fmt"
-	"os"
 	"regexp"
 	"strings"
 
@@ -145,74 +143,88 @@ func (p *Processor) ExtractTag(tagName, text string) string {
 	return ""
 }
 
+// ExtractTagAll は同一テキスト内に複数回出現するタグをすべて抽出して返す
+// 出現順（上→下）の順で返す
+func (p *Processor) ExtractTagAll(tagName, text string) []string {
+	startTag := "[" + tagName + "]"
+	endTag := "[/" + tagName + "]"
+
+	res := make([]string, 0)
+	pos := 0
+	for {
+		s := strings.Index(text[pos:], startTag)
+		if s < 0 {
+			break
+		}
+		start := pos + s + len(startTag)
+		e := strings.Index(text[start:], endTag)
+		if e < 0 {
+			break
+		}
+		content := strings.TrimSpace(text[start : start+e])
+		if content != "" {
+			res = append(res, content)
+		}
+		pos = start + e + len(endTag)
+	}
+	return res
+}
+
+func reverseStrings(ss []string) {
+	for i, j := 0, len(ss)-1; i < j; i, j = i+1, j-1 {
+		ss[i], ss[j] = ss[j], ss[i]
+	}
+}
+
 // ExtractTags は複数のタグを抽出してマップで返す
 // 各タグは複数の値を配列で保持し、TagConfigの件数制限を適用する
 // 説明文とコメントは独立して処理される
 func (p *Processor) ExtractTags(description string, journals []redmine.Journal) map[string][]string {
 	result := make(map[string][]string)
 
-	// 説明文から抽出（説明文のみから）
-	descTags := make(map[string][]string)
-	for _, tagConfig := range p.tagConfigs {
-		if content := p.ExtractTag(tagConfig.Name, description); content != "" {
-			descTags[tagConfig.Name] = append(descTags[tagConfig.Name], content)
-			// デバッグ: 説明文から抽出
-			fmt.Fprintf(os.Stderr, "[DEBUG] 説明文から抽出: タグ=%s, 内容=%q\n", tagConfig.Name, content)
-		}
-	}
-
-	// ジャーナル（コメント）から抽出（includeCommentsがtrueの場合のみ）
-	// コメントからの抽出は説明文の結果とは独立して行われる
-	commentTags := make(map[string][]string)
-	if p.includeComments {
-		fmt.Fprintf(os.Stderr, "[DEBUG] ExtractTags: includeComments=true, journals=%d\n", len(journals))
-		// 最新のコメントから順に処理（逆順）
-		for i := len(journals) - 1; i >= 0; i-- {
-			journal := journals[i]
-			if journal.Notes == "" {
-				continue
-			}
-			fmt.Fprintf(os.Stderr, "[DEBUG] ジャーナル[%d]: Notes=%q\n", i, journal.Notes)
-			for _, tagConfig := range p.tagConfigs {
-				if content := p.ExtractTag(tagConfig.Name, journal.Notes); content != "" {
-					commentTags[tagConfig.Name] = append(commentTags[tagConfig.Name], content)
-					fmt.Fprintf(os.Stderr, "[DEBUG] ジャーナルから抽出成功: タグ=%s, 内容=%q (合計%d個)\n", tagConfig.Name, content, len(commentTags[tagConfig.Name]))
-				}
-			}
-		}
-
-		// tagsOrderに応じてコメントのタグを逆転（oldest指定の場合）
-		if p.tagsOrder == "oldest" {
-			for tagName, values := range commentTags {
-				// 配列を逆転
-				reversed := make([]string, len(values))
-				for i, v := range values {
-					reversed[len(values)-1-i] = v
-				}
-				commentTags[tagName] = reversed
-			}
-		}
-	}
-
-	// 説明文のタグとコメントのタグを結合（説明文が最初）
 	for _, tagConfig := range p.tagConfigs {
 		tagName := tagConfig.Name
-		// 説明文のタグを追加
-		if descValues, ok := descTags[tagName]; ok {
-			result[tagName] = append(result[tagName], descValues...)
-		}
-		// コメントのタグを追加
-		if commentValues, ok := commentTags[tagName]; ok {
-			result[tagName] = append(result[tagName], commentValues...)
-		}
-	}
+		values := make([]string, 0)
 
-	// 件数制限を適用
-	for _, tagConfig := range p.tagConfigs {
-		if tagConfig.Limit > 0 && len(result[tagConfig.Name]) > tagConfig.Limit {
-			// 最新のN件を保持（配列の最初から取得、ジャーナルは逆順処理のため最新が先頭）
-			result[tagConfig.Name] = result[tagConfig.Name][:tagConfig.Limit]
-			fmt.Fprintf(os.Stderr, "[DEBUG] タグ %s の件数制限を適用: %d件に制限\n", tagConfig.Name, tagConfig.Limit)
+		// 1) まず「最新→古い」の順でコメントから集める（取得順序は固定）
+		if p.includeComments {
+			for i := len(journals) - 1; i >= 0; i-- {
+				notes := journals[i].Notes
+				if notes == "" {
+					continue
+				}
+
+				// 同一コメント内で複数ある場合は末尾を新しいとみなす
+				vs := p.ExtractTagAll(tagName, notes) // 上→下
+				for j := len(vs) - 1; j >= 0; j-- {   // 下→上（新しい→古い）
+					values = append(values, vs[j])
+				}
+
+				// 最新N件だけ取得できれば十分（表示順は最後に調整）
+				if tagConfig.Limit > 0 && len(values) >= tagConfig.Limit {
+					break
+				}
+			}
+		}
+
+		// 2) 説明文はコメントより古い扱いで後ろに足す
+		dv := p.ExtractTagAll(tagName, description) // 上→下
+		for j := len(dv) - 1; j >= 0; j-- {         // 下→上（説明文内の最新を優先）
+			values = append(values, dv[j])
+		}
+
+		// 3) 件数制限は「常に最新N件」を確定（取得側の都合でoldestにしない）
+		if tagConfig.Limit > 0 && len(values) > tagConfig.Limit {
+			values = values[:tagConfig.Limit]
+		}
+
+		// 4) --tags-order は「取得後の表示順」だけを制御
+		if p.tagsOrder == "oldest" {
+			reverseStrings(values)
+		}
+
+		if len(values) > 0 {
+			result[tagName] = values
 		}
 	}
 
