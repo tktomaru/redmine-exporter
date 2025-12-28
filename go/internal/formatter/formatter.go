@@ -11,20 +11,26 @@ import (
 // Formatter は出力形式のインターフェース
 type Formatter interface {
 	Format(roots []*redmine.Issue, w io.Writer) error
+	SetMode(mode string, tagNames []string)
 }
 
 // DetectFormatter は拡張子から適切なフォーマッターを返す
-func DetectFormatter(filename string) (Formatter, error) {
+func DetectFormatter(filename string, mode string, tagNames []string) (Formatter, error) {
+	var formatter Formatter
+
 	switch {
 	case strings.HasSuffix(filename, ".md"):
-		return &MarkdownFormatter{}, nil
+		formatter = &MarkdownFormatter{}
 	case strings.HasSuffix(filename, ".txt"):
-		return &TextFormatter{}, nil
+		formatter = &TextFormatter{}
 	case strings.HasSuffix(filename, ".xlsx"):
-		return &ExcelFormatter{filename: filename}, nil
+		formatter = &ExcelFormatter{filename: filename}
 	default:
 		return nil, fmt.Errorf("未対応の拡張子: %s (.md, .txt, .xlsx のみ対応)", filename)
 	}
+
+	formatter.SetMode(mode, tagNames)
+	return formatter, nil
 }
 
 // formatDate は日付をフォーマット

@@ -130,7 +130,7 @@ func run(configPath, outputPath, modeFlag, tagsFlag string, includeCommentsFlag 
 	}
 
 	// 5. フォーマッター選択
-	fmtr, err := formatter.DetectFormatter(outputPath)
+	fmtr, err := formatter.DetectFormatter(outputPath, cfg.Output.Mode, cfg.Output.TagNames)
 	if err != nil {
 		return err
 	}

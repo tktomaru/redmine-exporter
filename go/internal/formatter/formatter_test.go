@@ -39,6 +39,7 @@ func createTestData() []*redmine.Issue {
 
 func TestTextFormatter(t *testing.T) {
 	formatter := &TextFormatter{}
+	formatter.SetMode("summary", []string{"要約"})
 	roots := createTestData()
 
 	var buf bytes.Buffer
@@ -77,6 +78,7 @@ func TestTextFormatter(t *testing.T) {
 
 func TestMarkdownFormatter(t *testing.T) {
 	formatter := &MarkdownFormatter{}
+	formatter.SetMode("summary", []string{"要約"})
 	roots := createTestData()
 
 	var buf bytes.Buffer
@@ -146,7 +148,7 @@ func TestDetectFormatter(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			formatter, err := DetectFormatter(tt.filename)
+			formatter, err := DetectFormatter(tt.filename, "summary", []string{"要約"})
 
 			if (err != nil) != tt.wantErr {
 				t.Errorf("DetectFormatter() error = %v, wantErr %v", err, tt.wantErr)
@@ -208,6 +210,7 @@ func TestFormatDate(t *testing.T) {
 
 func TestTextFormatterEmptySummary(t *testing.T) {
 	formatter := &TextFormatter{}
+	formatter.SetMode("summary", []string{"要約"})
 
 	parent := &redmine.Issue{
 		ID:             1,

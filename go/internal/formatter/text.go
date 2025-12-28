@@ -9,61 +9,85 @@ import (
 )
 
 // TextFormatter はVBA版と同じテキスト形式で出力
-type TextFormatter struct{}
+type TextFormatter struct {
+	mode     string
+	tagNames []string
+}
+
+// SetMode はモードとタグ名を設定
+func (f *TextFormatter) SetMode(mode string, tagNames []string) {
+	f.mode = mode
+	f.tagNames = tagNames
+}
 
 // Format はテキスト形式で出力（VBA版の出力形式を再現）
 func (f *TextFormatter) Format(roots []*redmine.Issue, w io.Writer) error {
 	for _, parent := range roots {
-		// 子チケットがある場合は親子形式で出力
 		if len(parent.Children) > 0 {
 			// 親タスク
 			fmt.Fprintf(w, "■%s\n", parent.CleanedSubject)
+			f.printIssueDetails(w, parent, "親")
 
 			// 子タスク
 			for _, child := range parent.Children {
-				assignee := processor.GetAssignee(child)
-				startDate := formatDate(child.StartDate)
-				dueDate := formatDate(child.DueDate)
-
-				fmt.Fprintf(w, "・%s 【%s】 %s-%s 担当: %s\n",
-					child.CleanedSubject,
-					child.Status.Name,
-					startDate,
-					dueDate,
-					assignee,
-				)
-
-				// 要約がある場合
-				if child.Summary != "" {
-					fmt.Fprintf(w, "　⇒%s\n", child.Summary)
-				}
+				fmt.Fprintf(w, "・%s\n", child.CleanedSubject)
+				f.printIssueDetails(w, child, "子")
 			}
 
-			fmt.Fprintln(w) // 親タスク間の空行
+			fmt.Fprintln(w)
 		} else {
-			// スタンドアロンチケット（子を持たない）も親タスクとして出力
+			// スタンドアロンチケット
 			fmt.Fprintf(w, "■%s\n", parent.CleanedSubject)
-
-			// ステータスや担当者などの詳細情報を表示
-			assignee := processor.GetAssignee(parent)
-			startDate := formatDate(parent.StartDate)
-			dueDate := formatDate(parent.DueDate)
-
-			fmt.Fprintf(w, "　【%s】 %s-%s 担当: %s\n",
-				parent.Status.Name,
-				startDate,
-				dueDate,
-				assignee,
-			)
-
-			// 要約がある場合
-			if parent.Summary != "" {
-				fmt.Fprintf(w, "　⇒%s\n", parent.Summary)
-			}
-
-			fmt.Fprintln(w) // チケット間の空行
+			f.printIssueDetails(w, parent, "単独")
+			fmt.Fprintln(w)
 		}
 	}
 
 	return nil
+}
+
+// printIssueDetails はモードに応じてチケットの詳細を出力
+func (f *TextFormatter) printIssueDetails(w io.Writer, issue *redmine.Issue, issueType string) {
+	assignee := processor.GetAssignee(issue)
+	startDate := formatDate(issue.StartDate)
+	dueDate := formatDate(issue.DueDate)
+
+	switch f.mode {
+	case "full":
+		// フルモード：すべての情報を表示
+		fmt.Fprintf(w, "　ID: %d\n", issue.ID)
+		fmt.Fprintf(w, "　プロジェクト: %s\n", issue.Project.Name)
+		fmt.Fprintf(w, "　トラッカー: %s\n", issue.Tracker.Name)
+		fmt.Fprintf(w, "　ステータス: %s\n", issue.Status.Name)
+		fmt.Fprintf(w, "　優先度: %s\n", issue.Priority.Name)
+		fmt.Fprintf(w, "　開始日: %s\n", startDate)
+		fmt.Fprintf(w, "　終了日: %s\n", dueDate)
+		fmt.Fprintf(w, "　担当者: %s\n", assignee)
+		if issue.Description != "" {
+			fmt.Fprintf(w, "　説明: %s\n", issue.Description)
+		}
+		if len(issue.Journals) > 0 {
+			fmt.Fprintf(w, "　コメント数: %d\n", len(issue.Journals))
+		}
+
+	case "tags":
+		// タグモード：指定されたタグの内容を表示
+		fmt.Fprintf(w, "　【%s】 %s-%s 担当: %s\n", issue.Status.Name, startDate, dueDate, assignee)
+		for _, tagName := range f.tagNames {
+			if content, ok := issue.ExtractedTags[tagName]; ok && content != "" {
+				fmt.Fprintf(w, "　[%s] %s\n", tagName, content)
+			}
+		}
+
+	default:
+		// summaryモード：要約のみ表示（デフォルト）
+		if issueType == "子" {
+			fmt.Fprintf(w, "　【%s】 %s-%s 担当: %s\n", issue.Status.Name, startDate, dueDate, assignee)
+		} else {
+			fmt.Fprintf(w, "　【%s】 %s-%s 担当: %s\n", issue.Status.Name, startDate, dueDate, assignee)
+		}
+		if issue.Summary != "" {
+			fmt.Fprintf(w, "　⇒%s\n", issue.Summary)
+		}
+	}
 }
