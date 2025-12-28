@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"strings"
 
 	"gopkg.in/ini.v1"
 )
@@ -10,6 +11,7 @@ import (
 type Config struct {
 	Redmine       RedmineConfig
 	TitleCleaning TitleCleaningConfig
+	Output        OutputConfig
 }
 
 // RedmineConfig はRedmine接続設定
@@ -22,6 +24,13 @@ type RedmineConfig struct {
 // TitleCleaningConfig はタイトルクリーニング設定
 type TitleCleaningConfig struct {
 	Patterns []string
+}
+
+// OutputConfig は出力設定
+type OutputConfig struct {
+	Mode            string   // summary, full, tags
+	TagNames        []string // 抽出するタグ名のリスト
+	IncludeComments bool     // コメントからも抽出するか
 }
 
 // LoadConfig は指定されたパスから設定ファイルを読み込む
@@ -53,12 +62,42 @@ func LoadConfig(path string) (*Config, error) {
 	}
 	config.TitleCleaning.Patterns = patterns
 
+	// [Output]セクション
+	outputSection := cfg.Section("Output")
+	config.Output.Mode = outputSection.Key("Mode").MustString("summary")
+
+	// TagNames - カンマ区切りのリストを読み込む
+	tagNamesStr := outputSection.Key("TagNames").MustString("要約")
+	if tagNamesStr != "" {
+		config.Output.TagNames = splitAndTrim(tagNamesStr, ",")
+	} else {
+		config.Output.TagNames = []string{"要約"}
+	}
+
+	config.Output.IncludeComments = outputSection.Key("IncludeComments").MustBool(false)
+
 	// バリデーション
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
 
 	return config, nil
+}
+
+// splitAndTrim はカンマ区切りの文字列を分割してトリムする
+func splitAndTrim(s, sep string) []string {
+	if s == "" {
+		return []string{}
+	}
+	parts := strings.Split(s, sep)
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	return result
 }
 
 // Validate は設定値の妥当性をチェック

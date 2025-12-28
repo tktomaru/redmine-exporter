@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/tktomaru/redmine-exporter/internal/config"
 	"github.com/tktomaru/redmine-exporter/internal/formatter"
@@ -17,21 +18,30 @@ const version = "1.0.0"
 func main() {
 	// コマンドライン引数の定義
 	var (
-		configPath  = flag.String("c", "redmine.config", "設定ファイルのパス")
-		outputPath  = flag.String("o", "", "出力ファイルのパス（必須）")
-		showVersion = flag.Bool("v", false, "バージョン情報を表示")
+		configPath      = flag.String("c", "redmine.config", "設定ファイルのパス")
+		outputPath      = flag.String("o", "", "出力ファイルのパス（必須）")
+		showVersion     = flag.Bool("v", false, "バージョン情報を表示")
+		mode            = flag.String("mode", "", "出力モード (summary, full, tags) ※設定ファイルより優先")
+		tags            = flag.String("tags", "", "抽出するタグ名（カンマ区切り） 例: 要約,進捗,課題")
+		includeComments = flag.Bool("include-comments", false, "コメントからもタグを抽出する")
 	)
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Redmine Exporter v%s\n\n", version)
 		fmt.Fprintf(os.Stderr, "使い方:\n")
-		fmt.Fprintf(os.Stderr, "  redmine-exporter -o output.xlsx\n\n")
+		fmt.Fprintf(os.Stderr, "  redmine-exporter -o output.xlsx\n")
+		fmt.Fprintf(os.Stderr, "  redmine-exporter -o output.md --mode full\n")
+		fmt.Fprintf(os.Stderr, "  redmine-exporter -o output.txt --mode tags --tags \"要約,進捗\" --include-comments\n\n")
 		fmt.Fprintf(os.Stderr, "オプション:\n")
 		flag.PrintDefaults()
 		fmt.Fprintf(os.Stderr, "\n対応する出力形式:\n")
 		fmt.Fprintf(os.Stderr, "  .md   - Markdown形式\n")
 		fmt.Fprintf(os.Stderr, "  .txt  - テキスト形式\n")
 		fmt.Fprintf(os.Stderr, "  .xlsx - Excel形式\n")
+		fmt.Fprintf(os.Stderr, "\n出力モード:\n")
+		fmt.Fprintf(os.Stderr, "  summary - 要約のみ出力（デフォルト）\n")
+		fmt.Fprintf(os.Stderr, "  full    - すべてのフィールドを出力\n")
+		fmt.Fprintf(os.Stderr, "  tags    - 指定したタグの内容を抽出\n")
 	}
 
 	flag.Parse()
@@ -50,13 +60,13 @@ func main() {
 	}
 
 	// 実行
-	if err := run(*configPath, *outputPath); err != nil {
+	if err := run(*configPath, *outputPath, *mode, *tags, *includeComments); err != nil {
 		fmt.Fprintf(os.Stderr, "エラー: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func run(configPath, outputPath string) error {
+func run(configPath, outputPath, modeFlag, tagsFlag string, includeCommentsFlag bool) error {
 	// 1. 設定ファイル読み込み
 	fmt.Printf("設定ファイルを読み込んでいます: %s\n", configPath)
 	cfg, err := config.LoadConfig(configPath)
@@ -64,12 +74,26 @@ func run(configPath, outputPath string) error {
 		return fmt.Errorf("設定ファイルの読み込みに失敗: %w", err)
 	}
 
+	// コマンドラインフラグで設定を上書き
+	if modeFlag != "" {
+		cfg.Output.Mode = modeFlag
+	}
+	if tagsFlag != "" {
+		cfg.Output.TagNames = strings.Split(tagsFlag, ",")
+		for i := range cfg.Output.TagNames {
+			cfg.Output.TagNames[i] = strings.TrimSpace(cfg.Output.TagNames[i])
+		}
+	}
+	if includeCommentsFlag {
+		cfg.Output.IncludeComments = true
+	}
+
 	// 2. Redmine APIクライアント作成
 	client := redmine.NewClient(cfg.Redmine.BaseURL, cfg.Redmine.APIKey)
 
 	// 3. 全チケット取得（進捗表示付き）
 	fmt.Println("Redmineからチケットを取得中...")
-	issues, err := client.FetchAllIssues(cfg.Redmine.FilterURL, func(current, total int) {
+	issues, err := client.FetchAllIssues(cfg.Redmine.FilterURL, cfg.Output.IncludeComments, func(current, total int) {
 		if total > 0 {
 			fmt.Printf("\r取得中... (%d / %d)", current, total)
 		} else {
@@ -83,7 +107,7 @@ func run(configPath, outputPath string) error {
 
 	// 4. データ処理
 	fmt.Println("チケットを処理中...")
-	proc, err := processor.NewProcessor(cfg.TitleCleaning.Patterns)
+	proc, err := processor.NewProcessor(cfg.TitleCleaning.Patterns, cfg.Output.TagNames, cfg.Output.Mode)
 	if err != nil {
 		return fmt.Errorf("プロセッサー初期化エラー: %w", err)
 	}

@@ -29,7 +29,7 @@ func NewClient(baseURL, apiKey string) *Client {
 
 // FetchAllIssues は全チケットを取得（ページネーション対応）
 // VBA版のFetchAllIssues関数に相当
-func (c *Client) FetchAllIssues(filterURL string, progress func(current, total int)) ([]*Issue, error) {
+func (c *Client) FetchAllIssues(filterURL string, includeJournals bool, progress func(current, total int)) ([]*Issue, error) {
 	const limit = 100
 	offset := 0
 	totalCount := -1
@@ -37,7 +37,7 @@ func (c *Client) FetchAllIssues(filterURL string, progress func(current, total i
 
 	for {
 		// URLを構築（VBA版と同じロジック）
-		requestURL := c.buildURL(filterURL, limit, offset)
+		requestURL := c.buildURL(filterURL, limit, offset, includeJournals)
 
 		// 進捗表示
 		if progress != nil {
@@ -73,7 +73,7 @@ func (c *Client) FetchAllIssues(filterURL string, progress func(current, total i
 }
 
 // buildURL はVBA版と同じロジックでURLを構築
-func (c *Client) buildURL(filterURL string, limit, offset int) string {
+func (c *Client) buildURL(filterURL string, limit, offset int, includeJournals bool) string {
 	baseURL := c.baseURL + filterURL
 
 	// URLにクエリパラメータが既に含まれているかチェック
@@ -82,7 +82,14 @@ func (c *Client) buildURL(filterURL string, limit, offset int) string {
 		separator = "?"
 	}
 
-	return fmt.Sprintf("%s%slimit=%d&offset=%d", baseURL, separator, limit, offset)
+	url := fmt.Sprintf("%s%slimit=%d&offset=%d", baseURL, separator, limit, offset)
+
+	// ジャーナル（コメント）を含める場合
+	if includeJournals {
+		url += "&include=journals"
+	}
+
+	return url
 }
 
 // fetch はHTTP GETリクエストを実行

@@ -1,0 +1,31 @@
+[Redmine]
+; RedmineのベースURL
+BaseUrl=https://your-redmine.example.com
+
+; APIアクセスキー（個人設定で取得）
+ApiKey=your_api_key_here
+
+; フィルタURL（/issues.jsonから始まる）
+; 例: /issues.json?project_id=1&status_id=*&sort=parent:asc,id:asc
+FilterUrl=/issues.json?project_id=1&status_id=*
+
+[TitleCleaning]
+; タイトルから削除する正規表現パターン
+; Pattern1, Pattern2, ... と連番で指定
+Pattern1=^\[.*?\]\s*       ; [WIP], [完了]などのプレフィックスを削除
+Pattern2=\s*\(.*?\)$       ; (完了予定)などのサフィックスを削除
+; Pattern3=【重要】        ; 特定の文字列を削除
+
+[Output]
+; 出力モード: summary, full, tags
+; summary - 要約のみ出力（デフォルト）
+; full    - すべてのフィールドを出力
+; tags    - 指定したタグの内容を抽出
+Mode=summary
+
+; 抽出するタグ名（カンマ区切り）
+; 例: 要約,進捗,課題
+TagNames=要約
+
+; コメント（ジャーナル）からもタグを抽出するか
+IncludeComments=false

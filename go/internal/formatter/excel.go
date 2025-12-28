@@ -51,14 +51,14 @@ func (f *ExcelFormatter) Format(roots []*redmine.Issue, w io.Writer) error {
 				currentRow++
 			}
 		} else {
-			// スタンドアロンチケット（子を持たない）は単独で出力
+			// スタンドアロンチケット（子を持たない）も親タスクとして出力
 			assignee := processor.GetAssignee(parent)
 			startDate := formatDate(parent.StartDate)
 			dueDate := formatDate(parent.DueDate)
 
-			// 各セルに値を設定（親タスク列は空）
-			file.SetCellValue(sheetName, fmt.Sprintf("A%d", currentRow), "-")
-			file.SetCellValue(sheetName, fmt.Sprintf("B%d", currentRow), parent.CleanedSubject)
+			// 親タスク列に表示し、タスク名列は空にする
+			file.SetCellValue(sheetName, fmt.Sprintf("A%d", currentRow), parent.CleanedSubject)
+			file.SetCellValue(sheetName, fmt.Sprintf("B%d", currentRow), "")
 			file.SetCellValue(sheetName, fmt.Sprintf("C%d", currentRow), parent.Status.Name)
 			file.SetCellValue(sheetName, fmt.Sprintf("D%d", currentRow), startDate)
 			file.SetCellValue(sheetName, fmt.Sprintf("E%d", currentRow), dueDate)

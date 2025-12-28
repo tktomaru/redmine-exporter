@@ -41,25 +41,25 @@ func (f *MarkdownFormatter) Format(roots []*redmine.Issue, w io.Writer) error {
 
 			fmt.Fprintln(w) // 親タスク間の空行
 		} else {
-			// スタンドアロンチケット（子を持たない）は単独で出力
+			// スタンドアロンチケット（子を持たない）も見出しとして出力
+			fmt.Fprintf(w, "# %s\n\n", parent.CleanedSubject)
+
+			// ステータスや担当者などの詳細情報
 			assignee := processor.GetAssignee(parent)
 			startDate := formatDate(parent.StartDate)
 			dueDate := formatDate(parent.DueDate)
 
-			fmt.Fprintf(w, "- **%s** [%s] %s-%s 担当: %s\n",
-				parent.CleanedSubject,
+			fmt.Fprintf(w, "**ステータス**: %s | **期間**: %s-%s | **担当**: %s\n\n",
 				parent.Status.Name,
 				startDate,
 				dueDate,
 				assignee,
 			)
 
-			// 要約がある場合（引用ブロック）
+			// 要約がある場合
 			if parent.Summary != "" {
-				fmt.Fprintf(w, "  > %s\n", parent.Summary)
+				fmt.Fprintf(w, "> %s\n\n", parent.Summary)
 			}
-
-			fmt.Fprintln(w) // チケット間の空行
 		}
 	}
 

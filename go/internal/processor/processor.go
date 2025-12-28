@@ -10,10 +10,12 @@ import (
 // Processor はチケットデータの処理を行う
 type Processor struct {
 	cleaningPatterns []*regexp.Regexp
+	tagNames         []string
+	mode             string
 }
 
 // NewProcessor は新しいProcessorを作成
-func NewProcessor(patterns []string) (*Processor, error) {
+func NewProcessor(patterns []string, tagNames []string, mode string) (*Processor, error) {
 	regexps := make([]*regexp.Regexp, 0, len(patterns))
 
 	for _, pattern := range patterns {
@@ -32,6 +34,8 @@ func NewProcessor(patterns []string) (*Processor, error) {
 
 	return &Processor{
 		cleaningPatterns: regexps,
+		tagNames:         tagNames,
+		mode:             mode,
 	}, nil
 }
 
@@ -43,9 +47,25 @@ func (p *Processor) Process(issues []*redmine.Issue) []*redmine.Issue {
 	for _, issue := range issues {
 		byID[issue.ID] = issue
 
-		// タイトルクリーニングと要約抽出を実行
+		// タイトルクリーニング
 		issue.CleanedSubject = p.CleanTitle(issue.Subject)
-		issue.Summary = p.ExtractSummary(issue.Description)
+
+		// モードに応じて処理
+		switch p.mode {
+		case "tags":
+			// タグ抽出モード：複数のタグを抽出
+			issue.ExtractedTags = p.ExtractTags(p.tagNames, issue.Description, issue.Journals)
+			// 後方互換性のため、要約タグがあればSummaryにも設定
+			if summary, ok := issue.ExtractedTags["要約"]; ok {
+				issue.Summary = summary
+			}
+		case "full":
+			// フルモード：すべての情報を保持（特別な処理なし）
+			issue.Summary = p.ExtractSummary(issue.Description)
+		default:
+			// summaryモード：要約のみ抽出（デフォルト動作）
+			issue.Summary = p.ExtractSummary(issue.Description)
+		}
 	}
 
 	// 親子関係を構築
@@ -77,26 +97,62 @@ func (p *Processor) CleanTitle(subject string) string {
 	return result
 }
 
-// ExtractSummary は要約を抽出
+// ExtractSummary は要約を抽出（後方互換性のため残す）
 // VBA版のExtractSummary関数（行190-214）に相当
 func (p *Processor) ExtractSummary(description string) string {
-	const (
-		startTag = "[要約]"
-		endTag   = "[/要約]"
-	)
+	return p.ExtractTag("要約", description)
+}
 
-	// [要約]タグの検索
-	startPos := strings.Index(description, startTag)
+// ExtractTag は指定されたタグの内容を抽出
+func (p *Processor) ExtractTag(tagName, text string) string {
+	startTag := "[" + tagName + "]"
+	endTag := "[/" + tagName + "]"
+
+	// タグの検索
+	startPos := strings.Index(text, startTag)
 	if startPos >= 0 {
-		endPos := strings.Index(description[startPos+len(startTag):], endTag)
+		endPos := strings.Index(text[startPos+len(startTag):], endTag)
 		if endPos >= 0 {
-			summary := description[startPos+len(startTag) : startPos+len(startTag)+endPos]
-			return strings.TrimSpace(summary)
+			content := text[startPos+len(startTag) : startPos+len(startTag)+endPos]
+			return strings.TrimSpace(content)
 		}
 	}
 
-	// タグがない場合はFirstLine処理
-	return p.firstLine(description)
+	// タグがない場合は空文字列を返す（要約タグの場合のみFirstLineを返す）
+	if tagName == "要約" {
+		return p.firstLine(text)
+	}
+	return ""
+}
+
+// ExtractTags は複数のタグを抽出してマップで返す
+func (p *Processor) ExtractTags(tagNames []string, description string, journals []redmine.Journal) map[string]string {
+	result := make(map[string]string)
+
+	// 説明文から抽出
+	for _, tagName := range tagNames {
+		if content := p.ExtractTag(tagName, description); content != "" {
+			result[tagName] = content
+		}
+	}
+
+	// ジャーナル（コメント）からも抽出
+	for _, journal := range journals {
+		if journal.Notes == "" {
+			continue
+		}
+		for _, tagName := range tagNames {
+			// すでに抽出済みの場合はスキップ
+			if _, exists := result[tagName]; exists {
+				continue
+			}
+			if content := p.ExtractTag(tagName, journal.Notes); content != "" {
+				result[tagName] = content
+			}
+		}
+	}
+
+	return result
 }
 
 // firstLine は最初の非空行を返す

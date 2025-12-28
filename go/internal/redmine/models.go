@@ -26,11 +26,13 @@ type Issue struct {
 	DueDate     *Date      `json:"due_date"`
 	AssignedTo  *IDName    `json:"assigned_to"`
 	Parent      *IssueRef  `json:"parent"`
+	Journals    []Journal  `json:"journals"`
 
 	// 処理用フィールド（APIレスポンスには含まれない）
-	CleanedSubject string   `json:"-"`
-	Summary        string   `json:"-"`
-	Children       []*Issue `json:"-"`
+	CleanedSubject string            `json:"-"`
+	Summary        string            `json:"-"`
+	ExtractedTags  map[string]string `json:"-"` // タグ名 -> 抽出内容
+	Children       []*Issue          `json:"-"`
 }
 
 // IDName はID+名前を持つRedmineオブジェクト
@@ -42,6 +44,23 @@ type IDName struct {
 // IssueRef は親チケットへの参照
 type IssueRef struct {
 	ID int `json:"id"`
+}
+
+// Journal はチケットのコメント（更新履歴）
+type Journal struct {
+	ID        int     `json:"id"`
+	User      IDName  `json:"user"`
+	Notes     string  `json:"notes"`
+	CreatedOn string  `json:"created_on"`
+	Details   []JournalDetail `json:"details"`
+}
+
+// JournalDetail はジャーナルの変更詳細
+type JournalDetail struct {
+	Property string `json:"property"`
+	Name     string `json:"name"`
+	OldValue string `json:"old_value"`
+	NewValue string `json:"new_value"`
 }
 
 // Date はRedmineの日付フォーマット（YYYY-MM-DD）

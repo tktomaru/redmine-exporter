@@ -35,19 +35,21 @@ func (f *TextFormatter) Format(roots []*redmine.Issue, w io.Writer) error {
 
 				// 要約がある場合
 				if child.Summary != "" {
-					fmt.Fprintf(w, "⇒%s\n", child.Summary)
+					fmt.Fprintf(w, "　⇒%s\n", child.Summary)
 				}
 			}
 
 			fmt.Fprintln(w) // 親タスク間の空行
 		} else {
-			// スタンドアロンチケット（子を持たない）は単独で出力
+			// スタンドアロンチケット（子を持たない）も親タスクとして出力
+			fmt.Fprintf(w, "■%s\n", parent.CleanedSubject)
+
+			// ステータスや担当者などの詳細情報を表示
 			assignee := processor.GetAssignee(parent)
 			startDate := formatDate(parent.StartDate)
 			dueDate := formatDate(parent.DueDate)
 
-			fmt.Fprintf(w, "・%s 【%s】 %s-%s 担当: %s\n",
-				parent.CleanedSubject,
+			fmt.Fprintf(w, "　【%s】 %s-%s 担当: %s\n",
 				parent.Status.Name,
 				startDate,
 				dueDate,
@@ -56,7 +58,7 @@ func (f *TextFormatter) Format(roots []*redmine.Issue, w io.Writer) error {
 
 			// 要約がある場合
 			if parent.Summary != "" {
-				fmt.Fprintf(w, "⇒%s\n", parent.Summary)
+				fmt.Fprintf(w, "　⇒%s\n", parent.Summary)
 			}
 
 			fmt.Fprintln(w) // チケット間の空行
