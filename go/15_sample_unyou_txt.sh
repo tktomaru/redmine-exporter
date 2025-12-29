@@ -33,7 +33,7 @@ echo "1. 運用時の理想イメージ"
 # --week last        : 先週（例：月曜起点なら 2025-12-22〜2025-12-28 のような範囲）
 # --week-start mon   : 週の開始曜日を月曜に固定（ズレ防止）
 # --week-start thu   : 週の開始曜日を木曜に固定（ズレ防止）
-# --date-field updated_on : 期間フィルタに updated_on（更新日）を採用＝先週動いたチケットを拾う
+# --date-field updated_on : 期間フィルタに updated_on （更新日）を採用＝先週動いたチケットを拾う
 # コメント（ジャーナル）も対象にする＆ノイズ制御
 # --include-comments     : 本文だけでなくコメントからもタグを抽出
 # --comments-since auto  : 週の開始以降（自動算出）に限定して古いログ混入を防ぐ想定
@@ -49,7 +49,7 @@ echo "1. 運用時の理想イメージ"
   \
   --week this \
   --week-start thu \
-  --date-field start_date \
+  --date-field updated_on \
   \
   --include-comments \
   --comments-since auto \

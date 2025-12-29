@@ -45,7 +45,7 @@ echo "1. 運用時の理想イメージ"
 # --template weekly.md.tmpl: 週報の型をテンプレに閉じ込め、毎回同じ体裁を保証
 # --template summary.md.tmpl: サマリの型をテンプレに閉じ込め、毎回同じ体裁を保証
 "$EXPORTER" \
-  -o "$OUTPUT_DIR/tags_unyou_summary.txt" \
+  -o "$OUTPUT_DIR/tags_unyou_summary_description.txt" \
   \
   --mode tags \
   --tags "要約:1,進捗:2,課題,次週" \
@@ -60,5 +60,5 @@ echo "1. 運用時の理想イメージ"
   --prefer-comments \
   --sort updated_on:desc  \
     \
-  --template ./templates/summary.txt.tmpl
+  --template ./templates/summary_description.txt.tmpl
 #   --template ./templates/weekly.md.tmpl

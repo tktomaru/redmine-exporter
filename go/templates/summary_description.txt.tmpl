@@ -1,0 +1,53 @@
+# 週報 ({{ .Now.Format "2006/01/02" }})
+{{ range .Issues }}
+{{- if hasChildren . }}
+## {{ .CleanedSubject }}
+{{ range .Children }}
+{{- $issue := . -}}
+■ {{ .CleanedSubject }}　【{{ status . }}】　{{ formatDate .StartDate }}ー{{ formatDate .DueDate }}　担当者: {{ assignee . }}
+{{- if gt (len .Description) 0 }}
+{{- $vals := tagValues $issue "要約" }}
+{{- if gt (len $vals) 0 }}
+{{- range $vals }}
+　　　⇒ {{ . }}
+{{- end }}
+{{- else }}
+{{- if gt (len .Journals) 0 }}
+{{- range $tag := $.TagNames }}
+{{- $vals := tagValues $issue $tag }}
+{{- if gt (len $vals) 0 }}
+　　[{{ $tag }}]
+{{- range $vals }}
+　　　⇒ {{ . }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{ end }}
+{{- else }}
+{{- $issue := . -}}
+・ {{ .CleanedSubject }}　【{{ status . }}】　{{ formatDate .StartDate }}ー{{ formatDate .DueDate }}　担当者: {{ assignee . }}
+{{- if gt (len .Description) 0 }}
+{{- $vals := tagValues $issue "要約" }}
+{{- if gt (len $vals) 0 }}
+{{- range $vals }}
+　　　⇒ {{ . }}
+{{- end }}
+{{- else }}
+{{- if gt (len .Journals) 0 }}
+{{- range $tag := $.TagNames }}
+{{- $vals := tagValues $issue $tag }}
+{{- if gt (len $vals) 0 }}
+　　[{{ $tag }}]
+{{- range $vals }}
+　　　⇒ {{ . }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{ end }}
+{{ end }}
