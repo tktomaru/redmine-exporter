@@ -43,11 +43,12 @@ echo "1. 運用時の理想イメージ"
 # --sort updated_on   : グループ内の並びを更新日時でソート（“今週動いた順”に近い）
 # 出力形式とテンプレートを指定
 # --template weekly.md.tmpl: 週報の型をテンプレに閉じ込め、毎回同じ体裁を保証
+# --template summary.md.tmpl: サマリの型をテンプレに閉じ込め、毎回同じ体裁を保証
 "$EXPORTER" \
   -o "$OUTPUT_DIR/tags_unyou.md" \
   \
   --mode tags \
-  --tags "要約,進捗,課題,次週" \
+  --tags "要約:1,進捗:2,課題,次週" \
   \
   --week last \
   --week-start mon \
@@ -61,4 +62,5 @@ echo "1. 運用時の理想イメージ"
   --group-by assignee \
   --sort updated_on:desc  \
   \
-  --template ./templates/weekly.md.tmpl
+  --template ./templates/summary.md.tmpl
+#   --template ./templates/weekly.md.tmpl

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"text/template"
 	"time"
 
@@ -186,5 +187,25 @@ func templateFuncs() template.FuncMap {
 			}
 			return ""
 		},
+
+		// タグ値（ExtractedTags）を取得
+		"tagValues": func(issue *redmine.Issue, tagName string) []string {
+			if issue == nil || issue.ExtractedTags == nil {
+				return nil
+			}
+			return issue.ExtractedTags[tagName]
+		},
+
+		// 指定タグがあるか
+		"hasTag": func(issue *redmine.Issue, tagName string) bool {
+			if issue == nil || issue.ExtractedTags == nil {
+				return false
+			}
+			v := issue.ExtractedTags[tagName]
+			return len(v) > 0
+		},
+
+		// 文字列結合（必要なら）
+		"join": func(sep string, ss []string) string { return strings.Join(ss, sep) },
 	}
 }
