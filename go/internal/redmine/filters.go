@@ -33,15 +33,26 @@ func NewFilterBuilder() *FilterBuilder {
 }
 
 // AddDateRange は日時範囲フィルタを追加
-// Redmine API: field>=2025-01-01&field<=2025-01-31
+// Redmine REST API: field=><YYYY-MM-DD|YYYY-MM-DD（範囲）
+// 例: created_on=%3E%3C2012-03-01|2012-03-07 :contentReference[oaicite:3]{index=3}
 func (fb *FilterBuilder) AddDateRange(field string, start, end time.Time) {
 	startStr := start.Format("2006-01-02")
+
+	// end がゼロなら「以降」だけ（>=）
+	if end.IsZero() {
+		fb.params.Set(field, ">="+startStr)
+		return
+	}
+
 	endStr := end.Format("2006-01-02")
 
-	// Redmine APIのクエリパラメータ形式
-	// 比較演算子をキーに含める（ >= と <= ）
-	fb.params.Add(field+">=", startStr)
-	fb.params.Add(field+"<=", endStr)
+	// もし start > end を許すなら入れ替え
+	if start.After(end) {
+		startStr, endStr = endStr, startStr
+	}
+
+	// 範囲指定は 1つの値にまとめる（同じキーを2回にしない）
+	fb.params.Set(field, "><"+startStr+"|"+endStr)
 }
 
 // Build はクエリパラメータ文字列を返す

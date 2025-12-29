@@ -40,7 +40,6 @@ echo "1. 運用時の理想イメージ"
 # --comments n:3         : コメントは最新3件まで（情報量の暴走を抑制）
 # --prefer-comments      : 同名タグが本文とコメント両方にある場合、コメント側を優先（“最新”を採る）
 # 出力の構造（見出し/並び/親子関係）を指定
-# --group-by assignee : 担当者ごとにセクション分け（週報で“誰が何を”を見やすく）
 # --sort updated_on   : グループ内の並びを更新日時でソート（“今週動いた順”に近い）
 "$EXPORTER" \
   -o "$OUTPUT_DIR/tags_unyou.txt" \
@@ -48,9 +47,9 @@ echo "1. 運用時の理想イメージ"
   --mode tags \
   --tags "要約:1,進捗:4,課題,次週:1" \
   \
-  --week last \
+  --week this \
   --week-start thu \
-  --date-field updated_on \
+  --date-field start_date \
   \
   --include-comments \
   --comments-since auto \
