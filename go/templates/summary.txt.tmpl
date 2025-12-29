@@ -4,7 +4,7 @@
 ## {{ .CleanedSubject }}
 {{ range .Children }}
 {{- $issue := . -}}
-■ {{ .CleanedSubject }}　【{{ status . }}】　{{ formatDate .StartDate }}ー{{ formatDate .DueDate }}　**担当者**: {{ assignee . }}
+■ {{ .CleanedSubject }}　【{{ status . }}】　{{ formatDate .StartDate }}ー{{ formatDate .DueDate }}　担当者: {{ assignee . }}
 {{- if gt (len .Journals) 0 }}
 {{- range $tag := .TagNames }}
 {{- $vals := tagValues $issue $tag }}
@@ -19,7 +19,7 @@
 {{ end }}
 {{- else }}
 {{- $issue := . -}}
-■ {{ .CleanedSubject }}　【{{ status . }}】　{{ formatDate .StartDate }}ー{{ formatDate .DueDate }}　**担当者**: {{ assignee . }}
+■ {{ .CleanedSubject }}　【{{ status . }}】　{{ formatDate .StartDate }}ー{{ formatDate .DueDate }}　担当者: {{ assignee . }}
 {{- if gt (len .Journals) 0 }}
 {{- range $tag := $.TagNames }}
 {{- $vals := tagValues $issue $tag }}
