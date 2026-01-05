@@ -564,3 +564,144 @@ func TestProcess_WithJournalTags(t *testing.T) {
 		t.Errorf("タグ '課題' の内容 = %q; want ['修正が必要です']", got)
 	}
 }
+
+func TestProcess_OrphanTickets(t *testing.T) {
+	// 親チケットが取得データに含まれていない場合のテスト
+	// （例: 週報フィルタで親は更新されていないが子は更新されている場合）
+
+	// 親チケット（ID=100）は存在するが、取得データには含まれていない
+	child1 := &redmine.Issue{
+		ID:      1,
+		Subject: "子タスクA",
+		Parent:  &redmine.IssueRef{ID: 100}, // 親ID=100は取得データに含まれていない
+	}
+
+	child2 := &redmine.Issue{
+		ID:      2,
+		Subject: "子タスクB",
+		Parent:  &redmine.IssueRef{ID: 100}, // 親ID=100は取得データに含まれていない
+	}
+
+	child3 := &redmine.Issue{
+		ID:      3,
+		Subject: "子タスクC",
+		Parent:  &redmine.IssueRef{ID: 200}, // 親ID=200も取得データに含まれていない
+	}
+
+	issues := []*redmine.Issue{child1, child2, child3}
+
+	// プロセッサー作成
+	proc, err := NewProcessor([]string{}, []TagConfig{{Name: "要約", Limit: 0}}, "summary", false, false, "newest")
+	if err != nil {
+		t.Fatalf("NewProcessor()でエラー: %v", err)
+	}
+
+	// 処理実行
+	roots := proc.Process(issues)
+
+	// 検証: 親が含まれていない子チケットは疑似ルートとして扱われる
+	if len(roots) != 3 {
+		t.Fatalf("roots length = %d; want 3 (all orphan tickets should be treated as roots)", len(roots))
+	}
+
+	// 子チケットが全て含まれていることを確認
+	foundIDs := make(map[int]bool)
+	for _, root := range roots {
+		foundIDs[root.ID] = true
+	}
+
+	expectedIDs := []int{1, 2, 3}
+	for _, id := range expectedIDs {
+		if !foundIDs[id] {
+			t.Errorf("Issue #%d が roots に含まれていません", id)
+		}
+	}
+}
+
+func TestProcess_MixedOrphanAndNormal(t *testing.T) {
+	// 通常の親子関係と、orphanチケットが混在する場合のテスト
+
+	parent1 := &redmine.Issue{
+		ID:      1,
+		Subject: "親タスクA",
+	}
+
+	child1 := &redmine.Issue{
+		ID:      2,
+		Subject: "子タスクB",
+		Parent:  &redmine.IssueRef{ID: 1}, // 親ID=1は取得データに含まれている
+	}
+
+	orphan1 := &redmine.Issue{
+		ID:      3,
+		Subject: "Orphan子タスクC",
+		Parent:  &redmine.IssueRef{ID: 100}, // 親ID=100は取得データに含まれていない
+	}
+
+	standalone := &redmine.Issue{
+		ID:      4,
+		Subject: "スタンドアロンタスク",
+		Parent:  nil, // 親なし
+	}
+
+	issues := []*redmine.Issue{parent1, child1, orphan1, standalone}
+
+	// プロセッサー作成
+	proc, err := NewProcessor([]string{}, []TagConfig{{Name: "要約", Limit: 0}}, "summary", false, false, "newest")
+	if err != nil {
+		t.Fatalf("NewProcessor()でエラー: %v", err)
+	}
+
+	// 処理実行
+	roots := proc.Process(issues)
+
+	// 検証: parent1, orphan1, standalone の3件がルートになる
+	if len(roots) != 3 {
+		t.Fatalf("roots length = %d; want 3 (parent1, orphan1, standalone)", len(roots))
+	}
+
+	// parent1の子チケットが正しく構築されているか確認
+	var parent1Root *redmine.Issue
+	for _, root := range roots {
+		if root.ID == 1 {
+			parent1Root = root
+			break
+		}
+	}
+
+	if parent1Root == nil {
+		t.Fatal("parent1 が roots に含まれていません")
+	}
+
+	if len(parent1Root.Children) != 1 {
+		t.Fatalf("parent1.Children length = %d; want 1", len(parent1Root.Children))
+	}
+
+	if parent1Root.Children[0].ID != 2 {
+		t.Errorf("parent1.Children[0].ID = %d; want 2", parent1Root.Children[0].ID)
+	}
+
+	// orphan1がルートに含まれているか確認
+	foundOrphan := false
+	for _, root := range roots {
+		if root.ID == 3 {
+			foundOrphan = true
+			break
+		}
+	}
+	if !foundOrphan {
+		t.Error("orphan1 (ID=3) が roots に含まれていません")
+	}
+
+	// standaloneがルートに含まれているか確認
+	foundStandalone := false
+	for _, root := range roots {
+		if root.ID == 4 {
+			foundStandalone = true
+			break
+		}
+	}
+	if !foundStandalone {
+		t.Error("standalone (ID=4) が roots に含まれていません")
+	}
+}

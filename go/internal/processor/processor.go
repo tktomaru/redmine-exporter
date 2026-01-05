@@ -112,12 +112,18 @@ func (p *Processor) Process(issues []*redmine.Issue) []*redmine.Issue {
 	// 親子関係を構築
 	roots := []*redmine.Issue{}
 	parentCount := 0
+	orphanCount := 0 // 親チケットが取得データに含まれていない子チケット
 	for _, issue := range issues {
 		if issue.Parent != nil {
 			parentCount++
 			// 親チケットの子リストに追加
 			if parent, exists := byID[issue.Parent.ID]; exists {
 				parent.Children = append(parent.Children, issue)
+			} else {
+				// 親チケットが取得データに含まれていない場合、疑似ルートとして扱う
+				// （例: 週報フィルタで親は更新されていないが子は更新されている場合）
+				orphanCount++
+				roots = append(roots, issue)
 			}
 		} else {
 			// 親を持たないチケットはルート
@@ -125,7 +131,7 @@ func (p *Processor) Process(issues []*redmine.Issue) []*redmine.Issue {
 		}
 	}
 
-	logger.Info("親子関係構築: 親を持つチケット=%d件, ルートチケット=%d件", parentCount, len(roots))
+	logger.Info("親子関係構築: 親を持つチケット=%d件, ルートチケット=%d件, 疑似ルート=%d件", parentCount, len(roots), orphanCount)
 
 	return roots
 }
