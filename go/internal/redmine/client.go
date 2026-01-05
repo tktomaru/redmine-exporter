@@ -8,6 +8,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/tktomaru/redmine-exporter/internal/logger"
 )
 
 // Client はRedmine APIクライアント
@@ -39,8 +41,22 @@ func (c *Client) FetchAllIssues(filterURL string, includeJournals bool, dateFilt
 	totalCount := -1
 	allIssues := []*Issue{}
 
+	logger.Section("Redmine APIからチケット取得")
+	logger.Info("BaseURL: %s", c.baseURL)
+	logger.Info("FilterURL: %s", filterURL)
+	logger.Info("ページサイズ: %d件", limit)
+	logger.Info("ジャーナル取得: %v", includeJournals)
+	if dateFilter != nil {
+		logger.Info("日付フィルタ: %s %s 〜 %s",
+			dateFilter.Field,
+			dateFilter.Start.Format("2006/01/02 15:04:05"),
+			dateFilter.End.Format("2006/01/02 15:04:05"))
+	}
+
 	// Step 1: まず全チケットをjournalsなしで取得（高速）
+	pageCount := 0
 	for {
+		pageCount++
 		// URLを構築（journalsは含めない）
 		requestURL := c.buildURL(filterURL, limit, offset, false, dateFilter)
 
@@ -53,6 +69,8 @@ func (c *Client) FetchAllIssues(filterURL string, includeJournals bool, dateFilt
 			}
 		}
 
+		logger.Debug("ページ%d取得中 (offset=%d)...", pageCount, offset)
+
 		// APIリクエスト
 		resp, err := c.fetch(requestURL)
 		if err != nil {
@@ -62,9 +80,11 @@ func (c *Client) FetchAllIssues(filterURL string, includeJournals bool, dateFilt
 		// 初回のみtotal_countを取得
 		if totalCount == -1 {
 			totalCount = resp.TotalCount
+			logger.Info("合計チケット数: %d件", totalCount)
 		}
 
 		allIssues = append(allIssues, resp.Issues...)
+		logger.Debug("ページ%d: %d件取得 (累計: %d/%d)", pageCount, len(resp.Issues), len(allIssues), totalCount)
 
 		// 全件取得完了
 		if len(allIssues) >= totalCount {
@@ -74,10 +94,17 @@ func (c *Client) FetchAllIssues(filterURL string, includeJournals bool, dateFilt
 		offset += limit
 	}
 
+	logger.Info("チケット取得完了: %d件 (%dページ)", len(allIssues), pageCount)
+
 	// Step 2: journalsが必要な場合、各チケットを個別に再取得
 	// Redmine APIの制限: 複数チケット取得時はinclude=journalsが機能しない
 	if includeJournals && len(allIssues) > 0 {
+		logger.Section("ジャーナル（コメント）取得")
+		logger.Info("各チケットを個別取得中...")
 		fmt.Fprintf(os.Stderr, "[INFO] ジャーナル取得中（各チケットを個別取得）...\n")
+		journalCount := 0
+		errorCount := 0
+
 		for i, issue := range allIssues {
 			if progress != nil {
 				progress(i+1, len(allIssues))
@@ -87,13 +114,18 @@ func (c *Client) FetchAllIssues(filterURL string, includeJournals bool, dateFilt
 			detailedIssue, err := c.FetchIssue(issue.ID)
 			if err != nil {
 				// エラーが発生してもスキップして続行
+				errorCount++
+				logger.Warn("Issue #%d のジャーナル取得失敗: %v", issue.ID, err)
 				fmt.Fprintf(os.Stderr, "[WARN] Issue #%d のジャーナル取得失敗: %v\n", issue.ID, err)
 				continue
 			}
 
 			// journalsを既存のissueにコピー
 			allIssues[i].Journals = detailedIssue.Journals
+			journalCount += len(detailedIssue.Journals)
 		}
+
+		logger.Info("ジャーナル取得完了: %d件のジャーナル (エラー: %d件)", journalCount, errorCount)
 	}
 
 	return allIssues, nil
@@ -156,7 +188,7 @@ func (c *Client) buildURL(filterURL string, limit, offset int, includeJournals b
 	}
 
 	// デバッグ: 構築したURLを表示（APIキーは除く）
-	fmt.Fprintf(os.Stderr, "[DEBUG] Request URL: %s (includeJournals=%v)\n", url, includeJournals)
+	logger.Debug("Request URL: %s (includeJournals=%v)", url, includeJournals)
 
 	return url
 }
@@ -196,7 +228,7 @@ func (c *Client) fetch(url string) (*APIResponse, error) {
 		for _, issue := range apiResp.Issues {
 			totalJournals += len(issue.Journals)
 		}
-		fmt.Fprintf(os.Stderr, "[DEBUG] API Response: %d issues, %d journals total\n",
+		logger.Debug("API Response: %d issues, %d journals total",
 			len(apiResp.Issues), totalJournals)
 	}
 

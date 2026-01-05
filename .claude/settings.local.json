@@ -14,7 +14,8 @@
       "Bash(./redmine-exporter:*)",
       "Bash(chmod:*)",
       "Bash(make test:*)",
-      "Bash(make build-all:*)"
+      "Bash(make build-all:*)",
+      "Bash(make clean:*)"
     ]
   }
 }

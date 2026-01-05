@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/tktomaru/redmine-exporter/internal/logger"
 	"github.com/tktomaru/redmine-exporter/internal/redmine"
 )
 
@@ -54,13 +55,24 @@ func NewProcessor(patterns []string, tagConfigs []TagConfig, mode string, prefer
 // Process は全チケットを処理し、親子関係を構築
 // VBA版のメインロジック（行32-48）に相当
 func (p *Processor) Process(issues []*redmine.Issue) []*redmine.Issue {
+	logger.Info("タイトルクリーニングパターン数: %d", len(p.cleaningPatterns))
+	logger.Info("処理モード: %s", p.mode)
+
 	// チケットIDでマップ作成
 	byID := make(map[int]*redmine.Issue)
+	cleanedCount := 0
+	tagsExtractedCount := 0
+	summariesExtractedCount := 0
+
 	for _, issue := range issues {
 		byID[issue.ID] = issue
 
 		// タイトルクリーニング
+		originalSubject := issue.Subject
 		issue.CleanedSubject = p.CleanTitle(issue.Subject)
+		if originalSubject != issue.CleanedSubject {
+			cleanedCount++
+		}
 
 		// モードに応じて処理
 		switch p.mode {
@@ -68,10 +80,8 @@ func (p *Processor) Process(issues []*redmine.Issue) []*redmine.Issue {
 			// タグ抽出モード：複数のタグを抽出
 			// 説明文は常にissue.Descriptionから、コメントは別途独立して処理
 			issue.ExtractedTags = p.ExtractTags(issue.Description, issue.Journals)
-			// デバッグ：タグ抽出結果を表示
 			if len(issue.ExtractedTags) > 0 {
-				// fmt.Fprintf(os.Stderr, "[DEBUG] Issue #%d: ExtractedTags=%v (journals=%d)\n",
-				// 	issue.ID, issue.ExtractedTags, len(issue.Journals))
+				tagsExtractedCount++
 			}
 			// 後方互換性のため、要約タグがあればSummaryにも設定（最初の値を使用）
 			if summaries, ok := issue.ExtractedTags["要約"]; ok && len(summaries) > 0 {
@@ -80,16 +90,31 @@ func (p *Processor) Process(issues []*redmine.Issue) []*redmine.Issue {
 		case "full":
 			// フルモード：すべての情報を保持（特別な処理なし）
 			issue.Summary = p.ExtractSummary(issue.Description)
+			if issue.Summary != "" {
+				summariesExtractedCount++
+			}
 		default:
 			// summaryモード：要約のみ抽出（デフォルト動作）
 			issue.Summary = p.ExtractSummary(issue.Description)
+			if issue.Summary != "" {
+				summariesExtractedCount++
+			}
 		}
+	}
+
+	logger.Info("タイトルクリーニング: %d件/%d件", cleanedCount, len(issues))
+	if p.mode == "tags" {
+		logger.Info("タグ抽出: %d件/%d件のチケットからタグを抽出", tagsExtractedCount, len(issues))
+	} else {
+		logger.Info("要約抽出: %d件/%d件", summariesExtractedCount, len(issues))
 	}
 
 	// 親子関係を構築
 	roots := []*redmine.Issue{}
+	parentCount := 0
 	for _, issue := range issues {
 		if issue.Parent != nil {
+			parentCount++
 			// 親チケットの子リストに追加
 			if parent, exists := byID[issue.Parent.ID]; exists {
 				parent.Children = append(parent.Children, issue)
@@ -99,6 +124,8 @@ func (p *Processor) Process(issues []*redmine.Issue) []*redmine.Issue {
 			roots = append(roots, issue)
 		}
 	}
+
+	logger.Info("親子関係構築: 親を持つチケット=%d件, ルートチケット=%d件", parentCount, len(roots))
 
 	return roots
 }

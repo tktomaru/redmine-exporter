@@ -13,6 +13,7 @@ import (
 	"github.com/tktomaru/redmine-exporter/internal/config"
 	"github.com/tktomaru/redmine-exporter/internal/filter"
 	"github.com/tktomaru/redmine-exporter/internal/formatter"
+	"github.com/tktomaru/redmine-exporter/internal/logger"
 	"github.com/tktomaru/redmine-exporter/internal/processor"
 	"github.com/tktomaru/redmine-exporter/internal/redmine"
 	"github.com/tktomaru/redmine-exporter/internal/state"
@@ -119,6 +120,7 @@ func main() {
 		configPath      = flag.String("c", "redmine.config", "設定ファイルのパス")
 		outputPath      = flag.String("o", "", "出力ファイルのパス（必須）")
 		showVersion     = flag.Bool("v", false, "バージョン情報を表示")
+		verbose         = flag.Bool("verbose", false, "詳細ログを出力")
 		mode            = flag.String("mode", "", "出力モード (summary, full, tags) ※設定ファイルより優先")
 		tags            = flag.String("tags", "", "抽出するタグ名（カンマ区切り、個別上限指定可） 例: 要約:5,進捗,課題:2")
 		includeComments = flag.Bool("include-comments", false, "コメントからもタグを抽出する")
@@ -221,6 +223,11 @@ func main() {
 		os.Exit(1)
 	}
 
+	// ロガーの初期化
+	if *verbose {
+		logger.Enable()
+	}
+
 	// 実行
 	if err := run(*configPath, *outputPath, *mode, *tags, *includeComments, *tagsOrder, *week, *weekStart, *dateField, *comments, *commentsSince, *commentsBy, *preferComments, *groupBy, *sortBy, *stateFile, *since, *until, *templatePath, *stdout, *showStats, *includeMetrics); err != nil {
 		fmt.Fprintf(os.Stderr, "エラー: %v\n", err)
@@ -260,15 +267,21 @@ func run(configPath, outputPath, modeFlag, tagsFlag string, includeCommentsFlag 
 
 	// 1. 設定ファイル読み込み
 	fmt.Printf("設定ファイルを読み込んでいます: %s\n", configPath)
+	logger.Section("設定ファイル読み込み")
 	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
 		return fmt.Errorf("設定ファイルの読み込みに失敗: %w", err)
 	}
+	logger.Info("BaseURL: %s", cfg.Redmine.BaseURL)
+	logger.Info("FilterURL: %s", cfg.Redmine.FilterURL)
+	logger.Info("TitleCleaningパターン数: %d", len(cfg.TitleCleaning.Patterns))
 
 	// コマンドラインフラグで設定を上書き
 	if modeFlag != "" {
+		logger.Info("出力モードを上書き: %s → %s", cfg.Output.Mode, modeFlag)
 		cfg.Output.Mode = modeFlag
 	}
+	logger.Info("出力モード: %s", cfg.Output.Mode)
 
 	// コメント件数の上限を取得
 	commentsMax := 0
@@ -278,9 +291,11 @@ func run(configPath, outputPath, modeFlag, tagsFlag string, includeCommentsFlag 
 		if err != nil {
 			return fmt.Errorf("コメント設定のパースエラー: %w", err)
 		}
+		logger.Info("コメントモード: %s (上限: %d)", commentsMode, commentsMax)
 	}
 
 	// タグのパース（件数制限をサポート、commentsが上限）
+	logger.Section("タグ設定")
 	var tagConfigs []processor.TagConfig
 	if tagsFlag != "" {
 		var err error
@@ -288,19 +303,26 @@ func run(configPath, outputPath, modeFlag, tagsFlag string, includeCommentsFlag 
 		if err != nil {
 			return fmt.Errorf("タグのパースエラー: %w", err)
 		}
+		logger.Info("タグをコマンドラインフラグから設定: %v", cfg.Output.TagNames)
+		for _, tc := range tagConfigs {
+			logger.Info("  - %s (上限: %d件)", tc.Name, tc.Limit)
+		}
 	} else if len(cfg.Output.TagNames) > 0 {
 		// 設定ファイルから読み込んだ場合はcommentsMaxを適用
 		tagConfigs = make([]processor.TagConfig, len(cfg.Output.TagNames))
 		for i, name := range cfg.Output.TagNames {
 			tagConfigs[i] = processor.TagConfig{Name: name, Limit: commentsMax}
 		}
+		logger.Info("タグを設定ファイルから読み込み: %v", cfg.Output.TagNames)
 	}
 
 	if includeCommentsFlag {
 		cfg.Output.IncludeComments = true
+		logger.Info("コメントからもタグを抽出: 有効")
 	}
 
 	// 週報フィルタの構築
+	logger.Section("期間フィルタ")
 	var dateFilter *redmine.DateFilter
 	if weekFlag != "" {
 		// WeekCalculatorを作成
@@ -308,6 +330,7 @@ func run(configPath, outputPath, modeFlag, tagsFlag string, includeCommentsFlag 
 		if err != nil {
 			return fmt.Errorf("週計算エラー: %w", err)
 		}
+		logger.Info("週指定: %s (起点: %s)", weekFlag, weekStartFlag)
 
 		// 週の期間を取得
 		start, end, err := wc.GetWeekRange(weekFlag)
@@ -326,6 +349,8 @@ func run(configPath, outputPath, modeFlag, tagsFlag string, includeCommentsFlag 
 		statsWeekStart = start
 		statsWeekEnd = end
 
+		logger.Info("フィルタフィールド: %s", dateFieldFlag)
+		logger.Info("期間: %s 〜 %s", start.Format("2006/01/02 15:04:05"), end.Format("2006/01/02 15:04:05"))
 		fmt.Printf("期間フィルタ: %s %s 〜 %s\n", dateFieldFlag, start.Format("2006/01/02"), end.Format("2006/01/02"))
 	}
 
@@ -429,11 +454,13 @@ func run(configPath, outputPath, modeFlag, tagsFlag string, includeCommentsFlag 
 	// 3.5. コメントフィルタの適用
 	if commentsMode != "" || commentsSinceFlag != "" || commentsByFlag != "" {
 		fmt.Println("コメントをフィルタリング中...")
+		logger.Section("コメントフィルタ")
 
 		// commentsSinceの解釈（"auto" または "start" の場合は週の開始日を使用）
 		var commentsSinceDate *time.Time
 		if (commentsSinceFlag == "auto" || commentsSinceFlag == "start") && dateFilter != nil {
 			commentsSinceDate = &dateFilter.Start
+			logger.Info("コメント開始日時: %s (週の開始日)", commentsSinceDate.Format("2006/01/02 15:04:05"))
 		} else if commentsSinceFlag != "" && commentsSinceFlag != "auto" && commentsSinceFlag != "start" {
 			// YYYY-MM-DD形式をパース
 			t, err := time.Parse("2006-01-02", commentsSinceFlag)
@@ -441,6 +468,11 @@ func run(configPath, outputPath, modeFlag, tagsFlag string, includeCommentsFlag 
 				return fmt.Errorf("コメント開始日時の解析エラー: %w", err)
 			}
 			commentsSinceDate = &t
+			logger.Info("コメント開始日時: %s", commentsSinceDate.Format("2006/01/02"))
+		}
+
+		if commentsByFlag != "" {
+			logger.Info("コメントユーザーフィルタ: %s", commentsByFlag)
 		}
 
 		// CommentFilterを作成
@@ -450,24 +482,35 @@ func run(configPath, outputPath, modeFlag, tagsFlag string, includeCommentsFlag 
 		}
 
 		// 各チケットのジャーナルをフィルタリング
+		totalBefore := 0
+		totalAfter := 0
 		for _, issue := range issues {
+			before := len(issue.Journals)
+			totalBefore += before
 			issue.Journals = commentFilter.Filter(issue.Journals)
+			after := len(issue.Journals)
+			totalAfter += after
 		}
 
+		logger.Info("フィルタリング前: %d件 → フィルタリング後: %d件 (削減: %d件)", totalBefore, totalAfter, totalBefore-totalAfter)
 		fmt.Println("コメントフィルタリング完了")
 	}
 
 	// 4. データ処理
 	fmt.Println("チケットを処理中...")
+	logger.Section("データ処理")
+	logger.Info("入力チケット数: %d件", len(issues))
 	proc, err := processor.NewProcessor(cfg.TitleCleaning.Patterns, tagConfigs, cfg.Output.Mode, preferCommentsFlag, cfg.Output.IncludeComments, tagsOrderFlag)
 	if err != nil {
 		return fmt.Errorf("プロセッサー初期化エラー: %w", err)
 	}
 	roots := proc.Process(issues)
+	logger.Info("処理後のルートチケット数: %d件", len(roots))
 
 	// 4.5. グルーピング・ソート
 	if sortByFlag != "" || groupByFlag != "" {
 		fmt.Println("チケットをソート・グルーピング中...")
+		logger.Section("ソート・グルーピング")
 
 		// ルートチケットと子チケットをフラットなリストに展開
 		var allIssues []*redmine.Issue
@@ -475,9 +518,11 @@ func run(configPath, outputPath, modeFlag, tagsFlag string, includeCommentsFlag 
 			allIssues = append(allIssues, root)
 			allIssues = append(allIssues, root.Children...)
 		}
+		logger.Info("フラット化後のチケット数: %d件", len(allIssues))
 
 		// ソート
 		if sortByFlag != "" {
+			logger.Info("ソート実行: %s", sortByFlag)
 			sorter := processor.NewSorter(sortByFlag)
 			if sorter != nil {
 				sorter.Sort(allIssues)
@@ -486,9 +531,11 @@ func run(configPath, outputPath, modeFlag, tagsFlag string, includeCommentsFlag 
 
 		// グルーピング
 		if groupByFlag != "" {
+			logger.Info("グルーピング実行: %s", groupByFlag)
 			grouper := processor.NewGrouper(groupByFlag)
 			if grouper != nil {
 				grouped := grouper.Group(allIssues)
+				logger.Info("グループ数: %d", len(grouped.Keys))
 
 				// グルーピング後、各グループ内でもソートを適用
 				if sortByFlag != "" {
@@ -513,6 +560,7 @@ func run(configPath, outputPath, modeFlag, tagsFlag string, includeCommentsFlag 
 			issue.Children = nil
 			roots = append(roots, issue)
 		}
+		logger.Info("ソート・グルーピング後のチケット数: %d件", len(roots))
 	}
 
 	// 出力するチケット数をカウント
