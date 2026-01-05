@@ -12,7 +12,9 @@
       "Bash(go mod tidy:*)",
       "Bash(go build:*)",
       "Bash(./redmine-exporter:*)",
-      "Bash(chmod:*)"
+      "Bash(chmod:*)",
+      "Bash(make test:*)",
+      "Bash(make build-all:*)"
     ]
   }
 }

@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	_ "time/tzdata" // Windows対応: タイムゾーンデータベースをバイナリに埋め込む
 
 	"github.com/tktomaru/redmine-exporter/internal/config"
 	"github.com/tktomaru/redmine-exporter/internal/filter"
